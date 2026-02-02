@@ -173,6 +173,10 @@ function formatResult(result: SearchResult): string {
 	return lines.join("\n");
 }
 
+/**
+ * Sourcegraph extension for Pi.
+ * Provides a tool to search public code across GitHub repositories via Sourcegraph.
+ */
 export default function (pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "sourcegraph",
