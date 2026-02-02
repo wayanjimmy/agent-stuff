@@ -1,0 +1,19 @@
+{
+  "name": "jimbopi",
+  "version": "1.0.0",
+  "description": "Pi extension package",
+  "license": "ISC",
+  "keywords": [
+    "pi-package"
+  ],
+  "pi": {
+    "extensions": [
+      "./pi-extensions"
+    ]
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-ai": "*",
+    "@mariozechner/pi-coding-agent": "*",
+    "@mariozechner/pi-tui": "*"
+  }
+}
