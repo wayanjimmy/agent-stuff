@@ -90,3 +90,12 @@ Found 42 matches in 15 files (123ms)
 - Discovering how libraries are used in practice
 - Searching for specific patterns across open source
 - Learning from existing codebases
+
+## Important: Do NOT Clone Repositories
+
+**Never clone repositories to examine code.** Sourcegraph provides all the context you need:
+- Use the "View on Sourcegraph" links to read full files
+- Run additional searches to explore related code
+- Increase `context_window` parameter to see more surrounding lines
+
+Cloning is unnecessary, slow, and wastes disk space. Sourcegraph is your read-only code browser.
