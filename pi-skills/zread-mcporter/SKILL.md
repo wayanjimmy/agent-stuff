@@ -10,12 +10,52 @@ Access Zread MCP Server through mcporter to search and read GitHub repositories 
 ## Prerequisites
 
 - `mcporter` CLI installed (`npm install -g mcporter`)
-- `zread` MCP server configured in mcporter
+- Z.AI API key for zread MCP server
 
-Verify zread is available:
+### Setup
+
+**1. Get your Z.AI API key**
+- Visit https://into.md/docs.z.ai/devpack/mcp/zread-mcp-server to obtain an API key
+- Or set the `ZAI_API_KEY` environment variable
+
+**2. Configure zread in mcporter**
+```bash
+mcporter config add zread \
+  --url https://api.z.ai/api/mcp/zread/mcp \
+  --header "Authorization=Bearer $ZAI_API_KEY" \
+  --scope home
+```
+
+This writes the configuration to `~/.mcporter/mcporter.json`:
+```json
+{
+  "servers": {
+    "zread": {
+      "transport": "http",
+      "url": "https://api.z.ai/api/mcp/zread/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_API_KEY"
+      }
+    }
+  }
+}
+```
+
+**3. Verify the setup**
 ```bash
 mcporter list
+mcporter list zread --schema
 ```
+
+You should see:
+```
+- zread (3 tools)
+```
+
+**Troubleshooting**
+- If `mcporter list` shows no servers, verify your API key is set
+- Use `--dry-run` with `config add` to preview without writing
+- Use `--scope project` to configure for the current project instead of home
 
 ## Usage
 
