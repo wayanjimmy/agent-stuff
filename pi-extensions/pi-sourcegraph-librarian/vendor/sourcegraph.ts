@@ -5,6 +5,7 @@ interface Params {
 	count?: number;
 	context_window?: number;
 	timeout?: number;
+	pattern_type?: "keyword" | "literal" | "regexp" | "structural";
 }
 
 interface LineMatch {
@@ -12,11 +13,19 @@ interface LineMatch {
 	lineNumber: number;
 }
 
+interface SymbolInfo {
+	name: string;
+	kind: string;
+	url: string;
+	containerName?: string;
+}
+
 interface SearchMatch {
 	repo: string;
 	path: string;
 	url: string;
 	lineMatches: LineMatch[];
+	symbols?: SymbolInfo[];
 }
 
 interface SearchResult {
@@ -28,8 +37,8 @@ interface SearchResult {
 const SOURCEGRAPH_API_URL = "https://sourcegraph.com/.api/graphql";
 
 const SEARCH_QUERY = `
-query Search($query: String!) {
-  search(query: $query, version: V3, patternType: keyword) {
+query Search($query: String!, $patternType: SearchPatternType!) {
+  search(query: $query, version: V3, patternType: $patternType) {
     results {
       matchCount
       resultCount
@@ -40,6 +49,32 @@ query Search($query: String!) {
           repository { name }
           file { path url }
           lineMatches { preview lineNumber }
+        }
+        ... on SymbolMatch {
+          repository { name }
+          file { path url }
+          symbols {
+            name
+            kind
+            url
+            containerName
+          }
+        }
+        ... on CommitDiff {
+          repository { name }
+          commit { url }
+          file { path }
+          diff {
+            newPath
+            oldPath
+            hunks {
+              body
+              oldLine
+              oldSpanLines
+              newLine
+              newSpanLines
+            }
+          }
         }
       }
     }
@@ -55,7 +90,8 @@ async function searchSourcegraph(
 	query: string,
 	count: number,
 	contextWindow: number,
-	timeoutMs: number
+	timeoutMs: number,
+	patternType: "keyword" | "literal" | "regexp" | "structural" = "keyword"
 ): Promise<SearchResult> {
 	const controller = new AbortController();
 	const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -69,7 +105,10 @@ async function searchSourcegraph(
 			},
 			body: JSON.stringify({
 				query: SEARCH_QUERY,
-				variables: { query: `${query} count:${count}` },
+				variables: {
+					query: `${query} count:${count}`,
+					patternType,
+				},
 			}),
 			signal: controller.signal,
 		});
@@ -97,22 +136,55 @@ async function searchSourcegraph(
 
 		const matches: SearchMatch[] = [];
 		for (const result of results.results || []) {
-			if (result.__typename !== "FileMatch") continue;
-			if (!result.repository || !result.file || !result.lineMatches) continue;
+			if (result.__typename === "FileMatch") {
+				if (!result.repository || !result.file || !result.lineMatches) continue;
 
-			const lineMatches: LineMatch[] = result.lineMatches
-				.slice(0, contextWindow > 0 ? contextWindow * 2 + 1 : 5)
-				.map((lm: { preview: string; lineNumber: number }) => ({
-					line: lm.preview,
-					lineNumber: lm.lineNumber,
+				const lineMatches: LineMatch[] = result.lineMatches
+					.slice(0, contextWindow > 0 ? contextWindow * 2 + 1 : 5)
+					.map((lm: { preview: string; lineNumber: number }) => ({
+						line: lm.preview,
+						lineNumber: lm.lineNumber,
+					}));
+
+				matches.push({
+					repo: result.repository.name,
+					path: result.file.path,
+					url: `https://sourcegraph.com${result.file.url}`,
+					lineMatches,
+				});
+			} else if (result.__typename === "SymbolMatch") {
+				if (!result.repository || !result.file || !result.symbols) continue;
+
+				const symbols: SymbolInfo[] = result.symbols.map((s: any) => ({
+					name: s.name,
+					kind: s.kind,
+					url: s.url,
+					containerName: s.containerName,
 				}));
 
-			matches.push({
-				repo: result.repository.name,
-				path: result.file.path,
-				url: `https://sourcegraph.com${result.file.url}`,
-				lineMatches,
-			});
+				matches.push({
+					repo: result.repository.name,
+					path: result.file.path,
+					url: `https://sourcegraph.com${result.file.url}`,
+					lineMatches: [],
+					symbols,
+				});
+			} else if (result.__typename === "CommitDiff") {
+				if (!result.repository || !result.commit || !result.file) continue;
+
+				const diffBody = result.diff?.hunks
+					?.map((h: any) => h.body)
+					.filter((b: string) => b)
+					.join("\n") || "(diff content)";
+
+				matches.push({
+					repo: result.repository.name,
+					path: result.diff?.newPath || result.diff?.oldPath || result.file.path,
+					url: result.commit.url,
+					lineMatches: [{ line: diffBody, lineNumber: 0 }],
+					symbols: undefined,
+				});
+			}
 		}
 
 		return {
@@ -143,11 +215,26 @@ function formatResult(result: SearchResult): string {
 		lines.push(`## ${match.repo} - ${match.path}`);
 		lines.push(`[View on Sourcegraph](${match.url})`);
 		lines.push("");
-		lines.push("```");
-		for (const lm of match.lineMatches) {
-			lines.push(`${lm.lineNumber}: ${lm.line}`);
+
+		// If this is a symbol match, show symbols
+		if (match.symbols && match.symbols.length > 0) {
+			lines.push("**Symbols:**");
+			for (const sym of match.symbols) {
+				const container = sym.containerName ? ` (${sym.containerName})` : "";
+				lines.push(`- \`${sym.name}\` [${sym.kind}]${container}`);
+			}
+			lines.push("");
 		}
-		lines.push("```");
+
+		// Show line matches if present
+		if (match.lineMatches.length > 0) {
+			lines.push("```");
+			for (const lm of match.lineMatches) {
+				const prefix = lm.lineNumber === 0 ? "" : `${lm.lineNumber}: `;
+				lines.push(`${prefix}${lm.line}`);
+			}
+			lines.push("```");
+		}
 		lines.push("");
 	}
 
@@ -180,6 +267,13 @@ function parseArgs(args: string[]): Params {
 			case "--timeout":
 			case "-t":
 				params.timeout = parseInt(next, 10);
+				i++;
+				break;
+			case "--pattern-type":
+			case "--pattern_type":
+				if (["keyword", "literal", "regexp", "structural"].includes(next)) {
+					params.pattern_type = next as "keyword" | "literal" | "regexp" | "structural";
+				}
 				i++;
 				break;
 		}
@@ -223,13 +317,15 @@ async function main() {
 	const contextWindow = clamp(params.context_window ?? 3, 0, 10);
 	const timeout = clamp(params.timeout ?? 30, 1, 120);
 	const timeoutMs = timeout * 1000;
+	const patternType = params.pattern_type ?? "keyword";
 
 	try {
 		const result = await searchSourcegraph(
 			params.query.trim(),
 			count,
 			contextWindow,
-			timeoutMs
+			timeoutMs,
+			patternType
 		);
 		console.log(formatResult(result));
 	} catch (error) {
