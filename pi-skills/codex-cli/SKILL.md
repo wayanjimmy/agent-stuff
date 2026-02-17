@@ -69,7 +69,14 @@ Do NOT pass `-s` / `--sandbox` flags. Codex's `read-only` and `workspace-write` 
 User's default profile is `yolo` (`gpt-5.3-codex`, reasoning `high`, approval `never`, sandbox `danger-full-access`). Just run `codex "prompt"` to use defaults -- no model or profile flags needed.
 
 ```typescript
-// Interactive with prompt -- no extra flags needed (yolo profile is default)
+// For codex exec (headless) - use dispatch mode for reliable full output capture
+// dispatch waits for completion and returns all output without polling
+interactive_shell({
+  command: 'codex exec "review --uncommitted"',
+  mode: "dispatch"
+})
+
+// For interactive TUI with prompt - hands-free allows user supervision
 interactive_shell({
   command: 'codex "Review this codebase for security issues"',
   mode: "hands-free"
@@ -78,9 +85,17 @@ interactive_shell({
 // Override reasoning effort for a single run
 interactive_shell({
   command: 'codex -c model_reasoning_effort="xhigh" "Complex refactor task"',
-  mode: "hands-free"
+  mode: "dispatch"
 })
 
-// Headless - use bash instead
+// Headless via bash (alternative, no overlay)
 bash({ command: 'codex exec "summarize the repo"' })
 ```
+
+### Mode Recommendations
+
+| Use Case | Recommended Mode | Why |
+|----------|------------------|-----|
+| `codex exec` commands | `dispatch` | Ensures full output captured, no early exit |
+| `codex` interactive TUI | `hands-free` | User can watch and take over if needed |
+| Quick checks | `bash` | Simple, no overlay overhead |
