@@ -66,7 +66,7 @@ export default function sourcegraphLibrarianExtension(pi: ExtensionAPI) {
 		name: "librarian",
 		label: "Librarian",
 		description:
-			"Cross-repo code researcher using Sourcegraph and/or Zread. Use when the answer likely lives in public codebases, exact locations are unknown, or you need to find implementations, patterns, or usage examples across open-source repositories. Sourcegraph for broad code search; Zread for semantic doc search and file reading. Returns evidence-first findings with verifiable links.",
+			"Cross-repo code researcher using Sourcegraph (default) and/or Zread. Use when the answer likely lives in public codebases, exact locations are unknown, or you need to find implementations, patterns, or usage examples across open-source repositories. Sourcegraph for broad code search; Zread for semantic doc search and file reading. Returns evidence-first findings with verifiable links.",
 		parameters: LibrarianParams,
 
 		async execute(_toolCallId, params, signal, onUpdate, ctx: ExtensionContext) {
