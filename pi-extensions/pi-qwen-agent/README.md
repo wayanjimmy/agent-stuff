@@ -20,15 +20,15 @@ If no task is provided, the extension pulls text from the Pi editor.
 
 The `qwen_agent` tool is available to the Pi agent:
 
-| Parameter             | Type       | Required | Description                                      |
-| --------------------- | ---------- | -------- | ------------------------------------------------ |
-| `task`                | `string`   | ✓        | The task/prompt for the Qwen agent               |
-| `cwd`                 | `string`   | ✗        | Working directory (defaults to workspace)        |
-| `approval_mode`       | `string`   | ✗        | `default`, `plan`, `auto-edit`, or `yolo`        |
-| `model`               | `string`   | ✗        | Specific model ID                                |
-| `include_directories` | `string[]` | ✗        | Additional workspace directories                 |
-| `continue`            | `boolean`  | ✗        | Resume the most recent session                   |
-| `resume`              | `string`   | ✗        | Resume a specific session by ID                  |
+| Parameter             | Type       | Required | Description                               |
+| --------------------- | ---------- | -------- | ----------------------------------------- |
+| `task`                | `string`   | ✓        | The task/prompt for the Qwen agent        |
+| `cwd`                 | `string`   | ✗        | Working directory (defaults to workspace) |
+| `approval_mode`       | `string`   | ✗        | `default`, `plan`, `auto-edit`, or `yolo` |
+| `model`               | `string`   | ✗        | Specific model ID                         |
+| `include_directories` | `string[]` | ✗        | Additional workspace directories          |
+| `continue`            | `boolean`  | ✗        | Resume the most recent session            |
+| `resume`              | `string`   | ✗        | Resume a specific session by ID           |
 
 ## Requirements
 

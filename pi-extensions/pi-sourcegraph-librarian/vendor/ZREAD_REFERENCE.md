@@ -2,32 +2,35 @@
 
 ## Tools
 
-| Tool | Purpose | Syntax |
-|------|---------|--------|
-| `search_doc` | Semantic search across docs, code, issues, commits | `mcporter call zread.search_doc repo_name="owner/repo" query="..." language="en"` |
-| `get_repo_structure` | Browse directory tree | `mcporter call zread.get_repo_structure repo_name="owner/repo" dir_path="/"` |
-| `read_file` | Read full file contents | `mcporter call zread.read_file repo_name="owner/repo" file_path="path/to/file"` |
+| Tool                 | Purpose                                            | Syntax                                                                            |
+| -------------------- | -------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `search_doc`         | Semantic search across docs, code, issues, commits | `mcporter call zread.search_doc repo_name="owner/repo" query="..." language="en"` |
+| `get_repo_structure` | Browse directory tree                              | `mcporter call zread.get_repo_structure repo_name="owner/repo" dir_path="/"`      |
+| `read_file`          | Read full file contents                            | `mcporter call zread.read_file repo_name="owner/repo" file_path="path/to/file"`   |
 
 ## Parameters
 
 ### search_doc
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `repo_name` | yes | GitHub repo in `owner/repo` format |
-| `query` | yes | Search keywords or question |
-| `language` | no | `"zh"` or `"en"` (default: context language) |
+
+| Parameter   | Required | Description                                  |
+| ----------- | -------- | -------------------------------------------- |
+| `repo_name` | yes      | GitHub repo in `owner/repo` format           |
+| `query`     | yes      | Search keywords or question                  |
+| `language`  | no       | `"zh"` or `"en"` (default: context language) |
 
 ### get_repo_structure
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `repo_name` | yes | GitHub repo in `owner/repo` format |
-| `dir_path` | no | Directory to inspect (default: `/`) |
+
+| Parameter   | Required | Description                         |
+| ----------- | -------- | ----------------------------------- |
+| `repo_name` | yes      | GitHub repo in `owner/repo` format  |
+| `dir_path`  | no       | Directory to inspect (default: `/`) |
 
 ### read_file
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `repo_name` | yes | GitHub repo in `owner/repo` format |
-| `file_path` | yes | Relative path to file |
+
+| Parameter   | Required | Description                        |
+| ----------- | -------- | ---------------------------------- |
+| `repo_name` | yes      | GitHub repo in `owner/repo` format |
+| `file_path` | yes      | Relative path to file              |
 
 ## Workflow
 

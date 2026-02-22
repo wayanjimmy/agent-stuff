@@ -1,69 +1,54 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn } from "node:child_process";
 
-import { QwenStreamParser, type QwenEvent, type ToolUseInfo } from "./qwen-stream-parser.ts";
+import { CodexStreamParser, type CodexEvent } from "./codex-stream-parser.ts";
 
-export type QwenStatus = "running" | "done" | "error" | "aborted";
+export type CodexStatus = "running" | "done" | "error" | "aborted";
 
-export interface QwenRunState {
-  status: QwenStatus;
+export interface CodexCommand {
+  command: string;
+  exitCode?: number;
+  status: string;
+  startedAt: number;
+  endedAt?: number;
+}
+
+export interface CodexRunState {
+  status: CodexStatus;
+  threadId?: string;
   lastAssistantMessage: string;
-  toolCalls: QwenToolCall[];
+  commands: CodexCommand[];
   stderrTail: string[];
   error?: string;
+  usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
   startedAt: number;
   endedAt?: number;
 }
 
-export interface QwenToolCall {
-  id: string;
-  name: string;
-  input: unknown;
-  startedAt: number;
-  endedAt?: number;
-  isError?: boolean;
-}
-
-const MAX_TOOL_CALLS = 80;
+const MAX_COMMANDS = 80;
 const MAX_STDERR_LINES = 20;
 const THROTTLE_MS = 150;
 
-export interface QwenRunnerOptions {
+export interface CodexRunnerOptions {
   task: string;
   cwd?: string;
-  approvalMode?: string;
+  sandbox?: string;
   model?: string;
-  includeDirectories?: string[];
-  continueSession?: boolean;
-  resume?: string;
+  profile?: string;
+  fullAuto?: boolean;
+  addDirs?: string[];
   signal?: AbortSignal;
-  onUpdate?: (state: QwenRunState) => void;
+  onUpdate?: (state: CodexRunState) => void;
 }
 
-export async function runQwenAgent(options: QwenRunnerOptions): Promise<QwenRunState> {
-  const {
-    task,
-    cwd,
-    approvalMode,
-    model,
-    includeDirectories,
-    continueSession,
-    resume,
-    signal,
-    onUpdate,
-  } = options;
+export async function runCodexAgent(options: CodexRunnerOptions): Promise<CodexRunState> {
+  const { task, cwd, sandbox, model, profile, fullAuto, addDirs, signal, onUpdate } = options;
 
-  const args = buildArgs(task, {
-    approvalMode,
-    model,
-    includeDirectories,
-    continueSession,
-    resume,
-  });
+  const args = buildArgs(task, { sandbox, model, profile, fullAuto, addDirs });
 
-  const state: QwenRunState = {
+  const state: CodexRunState = {
     status: "running",
     lastAssistantMessage: "",
-    toolCalls: [],
+    commands: [],
     stderrTail: [],
     startedAt: Date.now(),
   };
@@ -74,13 +59,13 @@ export async function runQwenAgent(options: QwenRunnerOptions): Promise<QwenRunS
     return state;
   }
 
-  const proc = spawn("qwen", args, {
+  const proc = spawn("codex", args, {
     cwd: cwd || process.cwd(),
     stdio: ["ignore", "pipe", "pipe"],
     env: { ...process.env },
   });
 
-  const parser = new QwenStreamParser();
+  const parser = new CodexStreamParser();
   let lastUpdateTime = 0;
   let updateTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -107,38 +92,49 @@ export async function runQwenAgent(options: QwenRunnerOptions): Promise<QwenRunS
     onUpdate?.({ ...state });
   };
 
-  const handleEvents = (events: QwenEvent[]) => {
+  const handleEvents = (events: CodexEvent[]) => {
     for (const event of events) {
       switch (event.kind) {
-        case "system":
+        case "thread_started":
+          state.threadId = event.threadId;
           break;
 
-        case "assistant_delta":
-          state.lastAssistantMessage = event.text;
+        case "turn_started":
           break;
 
-        case "assistant_message":
+        case "agent_message":
           if (event.text) {
             state.lastAssistantMessage = event.text;
           }
-          if (event.toolUse) {
-            for (const tu of event.toolUse) {
-              addToolCall(state, tu);
-            }
-          }
           break;
 
-        case "tool_result": {
-          const call = state.toolCalls.find((c) => c.id === event.toolUseId);
-          if (call) {
-            call.endedAt = Date.now();
-            call.isError = event.isError;
+        case "reasoning":
+          break;
+
+        case "command_execution": {
+          const existing = state.commands.find(
+            (c) => c.command === event.command && c.status === "running",
+          );
+          if (existing) {
+            existing.exitCode = event.exitCode;
+            existing.status = event.status;
+            existing.endedAt = Date.now();
+          } else {
+            state.commands.push({
+              command: event.command,
+              exitCode: event.exitCode,
+              status: event.status,
+              startedAt: Date.now(),
+            });
+            if (state.commands.length > MAX_COMMANDS) {
+              state.commands.splice(0, state.commands.length - MAX_COMMANDS);
+            }
           }
           break;
         }
 
-        case "result":
-          if (event.text) state.lastAssistantMessage = event.text;
+        case "turn_completed":
+          if (event.usage) state.usage = event.usage;
           break;
 
         case "error":
@@ -146,17 +142,22 @@ export async function runQwenAgent(options: QwenRunnerOptions): Promise<QwenRunS
           break;
 
         case "raw_text":
+          state.stderrTail.push(event.text);
+          if (state.stderrTail.length > MAX_STDERR_LINES) {
+            state.stderrTail.splice(0, state.stderrTail.length - MAX_STDERR_LINES);
+          }
           break;
       }
     }
     throttledUpdate();
   };
 
-  return new Promise<QwenRunState>((resolve) => {
+  return new Promise<CodexRunState>((resolve) => {
+    let killTimer: ReturnType<typeof setTimeout> | null = null;
     const killProc = () => {
       if (proc.exitCode !== null) return;
       proc.kill("SIGTERM");
-      setTimeout(() => {
+      killTimer = setTimeout(() => {
         if (proc.exitCode === null) proc.kill("SIGKILL");
       }, 2000);
     };
@@ -194,6 +195,10 @@ export async function runQwenAgent(options: QwenRunnerOptions): Promise<QwenRunS
         clearTimeout(updateTimer);
         updateTimer = null;
       }
+      if (killTimer) {
+        clearTimeout(killTimer);
+        killTimer = null;
+      }
 
       if (signal) signal.removeEventListener("abort", onAbort);
 
@@ -201,7 +206,7 @@ export async function runQwenAgent(options: QwenRunnerOptions): Promise<QwenRunS
         // Already handled
       } else if (code !== 0 && code !== null) {
         state.status = "error";
-        state.error = state.error ?? `qwen exited with code ${code}`;
+        state.error = state.error ?? `codex exited with code ${code}`;
       } else {
         state.status = "done";
       }
@@ -224,50 +229,36 @@ export async function runQwenAgent(options: QwenRunnerOptions): Promise<QwenRunS
 function buildArgs(
   task: string,
   opts: {
-    approvalMode?: string;
+    sandbox?: string;
     model?: string;
-    includeDirectories?: string[];
-    continueSession?: boolean;
-    resume?: string;
+    profile?: string;
+    fullAuto?: boolean;
+    addDirs?: string[];
   },
 ): string[] {
-  const args = ["-p", task, "--output-format", "stream-json"];
+  const args = ["exec", "--json", task];
 
-  if (opts.approvalMode === "yolo") {
-    args.push("--yolo");
-  } else if (opts.approvalMode && opts.approvalMode !== "default") {
-    args.push("--approval-mode", opts.approvalMode);
+  if (opts.sandbox) {
+    args.push("--sandbox", opts.sandbox);
   }
 
   if (opts.model) {
     args.push("-m", opts.model);
   }
 
-  if (opts.includeDirectories && opts.includeDirectories.length > 0) {
-    for (const dir of opts.includeDirectories) {
-      args.push("--include-directories", dir);
+  if (opts.profile) {
+    args.push("-p", opts.profile);
+  }
+
+  if (opts.fullAuto) {
+    args.push("--full-auto");
+  }
+
+  if (opts.addDirs && opts.addDirs.length > 0) {
+    for (const dir of opts.addDirs) {
+      args.push("--add-dir", dir);
     }
   }
 
-  if (opts.continueSession) {
-    args.push("--continue");
-  }
-
-  if (opts.resume) {
-    args.push("--resume", opts.resume);
-  }
-
   return args;
-}
-
-function addToolCall(state: QwenRunState, tu: ToolUseInfo): void {
-  state.toolCalls.push({
-    id: tu.id,
-    name: tu.name,
-    input: tu.input,
-    startedAt: Date.now(),
-  });
-  if (state.toolCalls.length > MAX_TOOL_CALLS) {
-    state.toolCalls.splice(0, state.toolCalls.length - MAX_TOOL_CALLS);
-  }
 }

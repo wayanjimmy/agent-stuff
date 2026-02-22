@@ -14,6 +14,7 @@ Access Laravel Boost MCP through mcporter to interact with Laravel applications 
 - Working Laravel application with Laravel Boost package installed
 
 Verify laravel-boost is available:
+
 ```bash
 mcporter list
 ```
@@ -38,29 +39,30 @@ Ensure Laravel Boost MCP is configured in your project's `config/mcporter.json`:
 
 ## Quick Reference
 
-| Tool | Purpose | Example |
-|------|---------|---------|
-| `application-info` | Get app info (PHP/Laravel versions, packages, models) | `mcporter call laravel-boost.application-info` |
-| `browser-logs` | Read browser/JS logs for frontend debugging | `mcporter call laravel-boost.browser-logs entries:10` |
-| `database-connections` | List database connection names | `mcporter call laravel-boost.database-connections` |
-| `database-query` | Execute read-only SQL queries | `mcporter call laravel-boost.database-query query:"SELECT * FROM users"` |
-| `database-schema` | Read database schema (tables, columns, indexes, foreign keys) | `mcporter call laravel-boost.database-schema filter:users` |
-| `get-absolute-url` | Get absolute URL for path or named route | `mcporter call laravel-boost.get-absolute-url path:/dashboard` |
-| `get-config` | Get config value by key | `mcporter call laravel-boost.get-config key:app.name` |
-| `last-error` | Get last backend error/exception | `mcporter call laravel-boost.last-error` |
-| `list-artisan-commands` | List all Artisan commands | `mcporter call laravel-boost.list-artisan-commands` |
-| `list-available-config-keys` | List all config keys | `mcporter call laravel-boost.list-available-config-keys` |
-| `list-available-env-vars` | List env variables from .env | `mcporter call laravel-boost.list-available-env-vars` |
-| `list-routes` | List all routes (incl. Folio) | `mcporter call laravel-boost.list-routes path:blog` |
-| `read-log-entries` | Read last N app log entries | `mcporter call laravel-boost.read-log-entries entries:20` |
-| `search-docs` | Search Laravel ecosystem docs | `mcporter call 'laravel-boost.search-docs(queries: ["livewire", "volt"])'` |
-| `tinker` | Execute PHP code in Laravel context | `mcporter call laravel-boost.tinker code:"User::count()"` |
+| Tool                         | Purpose                                                       | Example                                                                    |
+| ---------------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `application-info`           | Get app info (PHP/Laravel versions, packages, models)         | `mcporter call laravel-boost.application-info`                             |
+| `browser-logs`               | Read browser/JS logs for frontend debugging                   | `mcporter call laravel-boost.browser-logs entries:10`                      |
+| `database-connections`       | List database connection names                                | `mcporter call laravel-boost.database-connections`                         |
+| `database-query`             | Execute read-only SQL queries                                 | `mcporter call laravel-boost.database-query query:"SELECT * FROM users"`   |
+| `database-schema`            | Read database schema (tables, columns, indexes, foreign keys) | `mcporter call laravel-boost.database-schema filter:users`                 |
+| `get-absolute-url`           | Get absolute URL for path or named route                      | `mcporter call laravel-boost.get-absolute-url path:/dashboard`             |
+| `get-config`                 | Get config value by key                                       | `mcporter call laravel-boost.get-config key:app.name`                      |
+| `last-error`                 | Get last backend error/exception                              | `mcporter call laravel-boost.last-error`                                   |
+| `list-artisan-commands`      | List all Artisan commands                                     | `mcporter call laravel-boost.list-artisan-commands`                        |
+| `list-available-config-keys` | List all config keys                                          | `mcporter call laravel-boost.list-available-config-keys`                   |
+| `list-available-env-vars`    | List env variables from .env                                  | `mcporter call laravel-boost.list-available-env-vars`                      |
+| `list-routes`                | List all routes (incl. Folio)                                 | `mcporter call laravel-boost.list-routes path:blog`                        |
+| `read-log-entries`           | Read last N app log entries                                   | `mcporter call laravel-boost.read-log-entries entries:20`                  |
+| `search-docs`                | Search Laravel ecosystem docs                                 | `mcporter call 'laravel-boost.search-docs(queries: ["livewire", "volt"])'` |
+| `tinker`                     | Execute PHP code in Laravel context                           | `mcporter call laravel-boost.tinker code:"User::count()"`                  |
 
 ## Usage
 
 ### MCPorter Syntax Options
 
 **Flag style (shell-friendly):**
+
 ```bash
 mcporter call laravel-boost.application-info
 mcporter call laravel-boost.get-config key:app.name
@@ -68,12 +70,14 @@ mcporter call laravel-boost.database-query query:"SELECT COUNT(*) FROM users"
 ```
 
 **Function-call style (better for complex args/arrays):**
+
 ```bash
 mcporter call 'laravel-boost.search-docs(queries: ["livewire", "volt"], token_limit: 2000)'
 mcporter call 'laravel-boost.database-query(query: "SELECT * FROM users LIMIT 10")'
 ```
 
 **Shorthand (auto-infers `call`):**
+
 ```bash
 mcporter laravel-boost.application-info
 mcporter laravel-boost.list-routes method:GET
@@ -88,6 +92,7 @@ mcporter call laravel-boost.application-info
 ```
 
 **Response includes:**
+
 - PHP version
 - Laravel version
 - Database engine (mysql, postgresql, sqlite, etc.)
@@ -97,6 +102,7 @@ mcporter call laravel-boost.application-info
 ### 2. Database Operations
 
 #### Get Database Schema
+
 ```bash
 # Get schema for all tables
 mcporter call laravel-boost.database-schema
@@ -109,6 +115,7 @@ mcporter call laravel-boost.database-schema database:tenant_main
 ```
 
 #### Execute Read-Only Queries
+
 ```bash
 mcporter call laravel-boost.database-query query:"SELECT * FROM users LIMIT 10"
 
@@ -118,6 +125,7 @@ mcporter call laravel-boost.database-query query:"SHOW TABLES"
 ```
 
 #### List Database Connections
+
 ```bash
 mcporter call laravel-boost.database-connections
 ```
@@ -125,6 +133,7 @@ mcporter call laravel-boost.database-connections
 ### 3. Routes & URLs
 
 #### List All Routes
+
 ```bash
 # List all routes
 mcporter call laravel-boost.list-routes
@@ -146,6 +155,7 @@ mcporter call laravel-boost.list-routes only_vendor:true
 ```
 
 #### Generate Absolute URLs
+
 ```bash
 # For a path
 mcporter call laravel-boost.get-absolute-url path:/dashboard
@@ -160,6 +170,7 @@ mcporter call laravel-boost.get-absolute-url
 ### 4. Configuration & Environment
 
 #### Get Config Value
+
 ```bash
 mcporter call laravel-boost.get-config key:app.name
 mcporter call laravel-boost.get-config key:database.default
@@ -167,11 +178,13 @@ mcporter call laravel-boost.get-config key:services.postmark.token
 ```
 
 #### List Available Config Keys
+
 ```bash
 mcporter call laravel-boost.list-available-config-keys
 ```
 
 #### List Environment Variables
+
 ```bash
 # From default .env file
 mcporter call laravel-boost.list-available-env-vars
@@ -199,6 +212,7 @@ mcporter call 'laravel-boost.search-docs(queries: ["livewire lifecycle"], token_
 ```
 
 **Supported packages** (automatically detected from your app):
+
 - Laravel Framework (10.x, 11.x, 12.x)
 - Livewire (1.x, 2.x, 3.x, 4.x)
 - Volt
@@ -231,6 +245,7 @@ return $users->pluck("email");
 ```
 
 **Important:**
+
 - Use for debugging, testing code snippets, and checking if functions exist
 - Prefer existing Artisan commands over custom tinker code
 - Do not create models directly without explicit user approval
@@ -239,11 +254,13 @@ return $users->pluck("email");
 ### 7. Debugging & Logs
 
 #### Get Last Backend Error
+
 ```bash
 mcporter call laravel-boost.last-error
 ```
 
 #### Read Application Logs
+
 ```bash
 # Read last 20 log entries (default)
 mcporter call laravel-boost.read-log-entries entries:20
@@ -253,6 +270,7 @@ mcporter call laravel-boost.read-log-entries entries:50
 ```
 
 #### Read Browser Logs
+
 ```bash
 # For frontend/JS debugging
 mcporter call laravel-boost.browser-logs entries:10
@@ -261,6 +279,7 @@ mcporter call laravel-boost.browser-logs entries:10
 ### 8. Artisan Commands
 
 #### List All Artisan Commands
+
 ```bash
 mcporter call laravel-boost.list-artisan-commands
 ```
@@ -268,6 +287,7 @@ mcporter call laravel-boost.list-artisan-commands
 ## Workflow Patterns
 
 ### Pattern 1: Database Schema Exploration
+
 1. List database connections
 2. Get schema for specific tables
 3. Query data to understand relationships
@@ -287,6 +307,7 @@ mcporter call laravel-boost.tinker code:"return User::first()->posts;"
 ```
 
 ### Pattern 2: Route & URL Investigation
+
 1. List routes matching a pattern
 2. Get absolute URLs for testing
 3. Check route config/middleware
@@ -303,6 +324,7 @@ mcporter call laravel-boost.get-config key:app.url
 ```
 
 ### Pattern 3: Documentation-First Development
+
 1. Search for version-specific documentation
 2. Verify package versions
 3. Apply recommended patterns
@@ -319,6 +341,7 @@ mcporter call laravel-boost.tinker code:"return (new class { use Livewire\Concer
 ```
 
 ### Pattern 4: Debugging
+
 1. Check last backend error
 2. Read application logs
 3. Check browser logs for frontend issues
@@ -339,6 +362,7 @@ mcporter call laravel-boost.tinker code:"return config('queue.default');"
 ```
 
 ### Pattern 5: Environment & Config Audit
+
 1. List all available config keys
 2. List all environment variables
 3. Check specific config values
@@ -398,6 +422,7 @@ mcporter call 'laravel-boost.list-routes(method: "POST", path: "api", except_ven
 ## Output Format
 
 **JSON responses** for most tools with structured data:
+
 - `application-info`: Returns object with php_version, laravel_version, packages, models
 - `database-schema`: Returns object with tables, columns, indexes, foreign_keys
 - `database-query`: Returns query results as array of rows

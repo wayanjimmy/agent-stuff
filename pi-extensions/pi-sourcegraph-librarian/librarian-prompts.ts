@@ -4,31 +4,31 @@ import * as path from "node:path";
 import type { LibrarianBackend } from "./librarian-core.ts";
 
 const QUERY_REFERENCE = fs.readFileSync(
-	path.join(import.meta.dirname!, "vendor", "QUERY_REFERENCE.md"),
-	"utf-8",
+  path.join(import.meta.dirname!, "vendor", "QUERY_REFERENCE.md"),
+  "utf-8",
 );
 
 const ZREAD_REFERENCE = fs.readFileSync(
-	path.join(import.meta.dirname!, "vendor", "ZREAD_REFERENCE.md"),
-	"utf-8",
+  path.join(import.meta.dirname!, "vendor", "ZREAD_REFERENCE.md"),
+  "utf-8",
 );
 
 export function buildLibrarianSystemPrompt(
-	maxTurns: number,
-	workspace: string,
-	vendorDir: string,
-	defaultCount: number,
-	backends: LibrarianBackend[],
+  maxTurns: number,
+  workspace: string,
+  vendorDir: string,
+  defaultCount: number,
+  backends: LibrarianBackend[],
 ): string {
-	const useSg = backends.includes("sourcegraph");
-	const useZread = backends.includes("zread");
+  const useSg = backends.includes("sourcegraph");
+  const useZread = backends.includes("zread");
 
-	const backendLabel = backends.join("+");
+  const backendLabel = backends.join("+");
 
-	const toolSections: string[] = [];
+  const toolSections: string[] = [];
 
-	if (useSg) {
-		toolSections.push(`### Sourcegraph (broad code search)
+  if (useSg) {
+    toolSections.push(`### Sourcegraph (broad code search)
 
 \`\`\`bash
 deno run --quiet --allow-net=sourcegraph.com ${vendorDir}/sourcegraph.ts \\
@@ -42,21 +42,21 @@ Use Sourcegraph for: regex/literal search across repos, symbol lookup (\`type:sy
 ## Sourcegraph Query Reference
 
 ${QUERY_REFERENCE}`);
-	}
+  }
 
-	if (useZread) {
-		toolSections.push(`### Zread via mcporter (semantic search + file reading)
+  if (useZread) {
+    toolSections.push(`### Zread via mcporter (semantic search + file reading)
 
 ${ZREAD_REFERENCE}
 
 **Zread guardrails:**
 - When reading large files, pipe output to workspace and slice: \`mcporter call zread.read_file ... > ${workspace}/file.txt\` then read only the relevant range.
 - Never paste full file contents in your answer — extract only short excerpts (5–15 lines).`);
-	}
+  }
 
-	let strategyNote = "";
-	if (useSg && useZread) {
-		strategyNote = `
+  let strategyNote = "";
+  if (useSg && useZread) {
+    strategyNote = `
 ## Backend Strategy
 
 You have two complementary backends: **Sourcegraph** and **Zread**.
@@ -65,14 +65,14 @@ You have two complementary backends: **Sourcegraph** and **Zread**.
 - Typical workflow: discover with Sourcegraph → drill down with Zread.
 - If one backend fails or returns no results, try the other.
 - If mcporter/zread fails (not installed, API error), fall back to Sourcegraph-only and note the failure briefly.`;
-	}
+  }
 
-	const citationBackends = [];
-	if (useSg) citationBackends.push('Sourcegraph "View on Sourcegraph" links');
-	if (useZread) citationBackends.push("GitHub/Zread URLs from search output");
-	const citationSources = citationBackends.join(", or ");
+  const citationBackends = [];
+  if (useSg) citationBackends.push('Sourcegraph "View on Sourcegraph" links');
+  if (useZread) citationBackends.push("GitHub/Zread URLs from search output");
+  const citationSources = citationBackends.join(", or ");
 
-	return `You are Librarian, an evidence-first code researcher.
+  return `You are Librarian, an evidence-first code researcher.
 You search public code via ${backendLabel} to produce decision-ready briefs.
 Every claim needs a verifiable link. You operate in an isolated workspace and may only use the provided tools (bash/read).
 
@@ -156,29 +156,29 @@ Produce the final brief in the output format below.
 }
 
 export function buildLibrarianUserPrompt(
-	query: string,
-	repos: string[],
-	maxSearchResults: number,
+  query: string,
+  repos: string[],
+  maxSearchResults: number,
 ): string {
-	const parts: string[] = [`Research query: ${query}`];
+  const parts: string[] = [`Research query: ${query}`];
 
-	if (repos.length > 0) {
-		const repoFilters = repos
-			.map((r) => {
-				const clean = r.replace(/^https?:\/\//, "");
-				return clean.includes("/") ? `repo:^${escapeRegex(clean)}$` : `repo:${clean}`;
-			})
-			.join(" OR ");
-		parts.push(`\nRepository scope: ${repoFilters}`);
-	}
+  if (repos.length > 0) {
+    const repoFilters = repos
+      .map((r) => {
+        const clean = r.replace(/^https?:\/\//, "");
+        return clean.includes("/") ? `repo:^${escapeRegex(clean)}$` : `repo:${clean}`;
+      })
+      .join(" OR ");
+    parts.push(`\nRepository scope: ${repoFilters}`);
+  }
 
-	if (maxSearchResults !== 10) {
-		parts.push(`\nMax results per query: ${maxSearchResults}`);
-	}
+  if (maxSearchResults !== 10) {
+    parts.push(`\nMax results per query: ${maxSearchResults}`);
+  }
 
-	return parts.join("\n");
+  return parts.join("\n");
 }
 
 function escapeRegex(s: string): string {
-	return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

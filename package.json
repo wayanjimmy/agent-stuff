@@ -2,10 +2,19 @@
   "name": "jimbopi",
   "version": "1.0.0",
   "description": "Pi extension package",
-  "license": "ISC",
   "keywords": [
     "pi-package"
   ],
+  "license": "ISC",
+  "scripts": {
+    "fmt": "oxfmt",
+    "fmt:check": "oxfmt --check"
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-ai": "*",
+    "@mariozechner/pi-coding-agent": "*",
+    "@mariozechner/pi-tui": "*"
+  },
   "pi": {
     "extensions": [
       "./pi-extensions"
@@ -13,10 +22,5 @@
     "skills": [
       "./pi-skills"
     ]
-  },
-  "peerDependencies": {
-    "@mariozechner/pi-ai": "*",
-    "@mariozechner/pi-coding-agent": "*",
-    "@mariozechner/pi-tui": "*"
   }
 }

@@ -2,17 +2,17 @@
 
 ## Filters
 
-| Filter | Example | Notes |
-|--------|---------|-------|
-| **Repository** | `repo:^github\.com/org/repo$` | Regex anchor for exact match |
-| **Exclude repo** | `-repo:fork` | Exclude matching repos |
-| **File** | `file:\.ts$`, `file:internal/` | Path regex |
-| **Exclude file** | `-file:test`, `-file:_test\.go$` | |
-| **Language** | `lang:typescript`, `lang:go` | |
-| **Content** | `content:"exact phrase"` | Literal match |
-| **Case** | `case:yes` | Case-sensitive |
-| **Type** | `type:symbol`, `type:file`, `type:diff` | |
-| **Fork** | `fork:yes` | Include forks |
+| Filter           | Example                                 | Notes                        |
+| ---------------- | --------------------------------------- | ---------------------------- |
+| **Repository**   | `repo:^github\.com/org/repo$`           | Regex anchor for exact match |
+| **Exclude repo** | `-repo:fork`                            | Exclude matching repos       |
+| **File**         | `file:\.ts$`, `file:internal/`          | Path regex                   |
+| **Exclude file** | `-file:test`, `-file:_test\.go$`        |                              |
+| **Language**     | `lang:typescript`, `lang:go`            |                              |
+| **Content**      | `content:"exact phrase"`                | Literal match                |
+| **Case**         | `case:yes`                              | Case-sensitive               |
+| **Type**         | `type:symbol`, `type:file`, `type:diff` |                              |
+| **Fork**         | `fork:yes`                              | Include forks                |
 
 ## Boolean Operators
 
@@ -22,13 +22,13 @@
 
 ## CLI Parameters
 
-| Parameter | Default | Range | Description |
-|-----------|---------|-------|-------------|
-| `--query` | (required) | — | Sourcegraph search query |
-| `--count` | 10 | 1–20 | Max results |
-| `--context-window` | 3 | 0–10 | Line matches per file |
-| `--timeout` | 30 | 1–120 | Timeout in seconds |
-| `--pattern-type` | keyword | keyword/literal/regexp/structural | Search pattern type |
+| Parameter          | Default    | Range                             | Description              |
+| ------------------ | ---------- | --------------------------------- | ------------------------ |
+| `--query`          | (required) | —                                 | Sourcegraph search query |
+| `--count`          | 10         | 1–20                              | Max results              |
+| `--context-window` | 3          | 0–10                              | Line matches per file    |
+| `--timeout`        | 30         | 1–120                             | Timeout in seconds       |
+| `--pattern-type`   | keyword    | keyword/literal/regexp/structural | Search pattern type      |
 
 ## Examples
 
