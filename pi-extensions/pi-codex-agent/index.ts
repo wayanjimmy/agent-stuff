@@ -71,27 +71,6 @@ export default function codexAgentExtension(pi: ExtensionAPI) {
     },
   });
 
-  // Read-only variant (hard-coded sandbox for review/planner modes)
-  pi.registerTool({
-    name: "codex_agent_readonly",
-    label: "Codex Agent (Read-Only)",
-    description:
-      "Delegate a read-only task to the Codex CLI agent. The sandbox is hard-coded to 'read-only' for safety. Use for code review, planning, and analysis tasks.",
-    parameters: CodexAgentParams,
-
-    async execute(_toolCallId, params, signal, onUpdate) {
-      return executeCodex(params as Record<string, any>, signal, onUpdate, "read-only");
-    },
-
-    renderCall(args, theme) {
-      return renderCodexCall({ ...args, sandbox: "read-only" }, theme);
-    },
-
-    renderResult(result, opts, theme) {
-      return renderCodexResult(result, opts, theme);
-    },
-  });
-
   // /codex — general delegation
   pi.registerCommand("codex", {
     description: "Delegate a task to the Codex CLI agent. Usage: /codex <task>",
@@ -146,7 +125,7 @@ export default function codexAgentExtension(pi: ExtensionAPI) {
       ].join("\n");
 
       await ctx.waitForIdle();
-      pi.sendUserMessage(`Use the codex_agent_readonly tool for this task:\n\n${reviewPrompt}`);
+      pi.sendUserMessage(`Use the codex_agent tool with sandbox "read-only" for this task:\n\n${reviewPrompt}`);
     },
   });
 
@@ -179,7 +158,7 @@ export default function codexAgentExtension(pi: ExtensionAPI) {
       ].join("\n");
 
       await ctx.waitForIdle();
-      pi.sendUserMessage(`Use the codex_agent_readonly tool for this task:\n\n${planPrompt}`);
+      pi.sendUserMessage(`Use the codex_agent tool with sandbox "read-only" for this task:\n\n${planPrompt}`);
     },
   });
 }
