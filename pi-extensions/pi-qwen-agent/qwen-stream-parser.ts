@@ -104,7 +104,7 @@ export class QwenStreamParser {
 				const stopReason = message.stop_reason;
 
 				// If stop_reason is null, this is a partial/delta message
-				if (stopReason === null && text) {
+				if (stopReason === null && text && toolUses.length === 0) {
 					return { kind: "assistant_delta", text };
 				}
 

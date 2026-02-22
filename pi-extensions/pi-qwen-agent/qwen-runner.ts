@@ -83,6 +83,7 @@ export async function runQwenAgent(options: QwenRunnerOptions): Promise<QwenRunS
 	});
 
 	const parser = new QwenStreamParser();
+	let stderrBuffer = "";
 	let lastUpdateTime = 0;
 	let updateTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -187,17 +188,31 @@ export async function runQwenAgent(options: QwenRunnerOptions): Promise<QwenRunS
 		});
 
 		proc.stderr!.on("data", (chunk: Buffer) => {
-			const lines = chunk.toString("utf-8").split("\n").filter(Boolean);
-			state.stderrTail.push(...lines);
-			if (state.stderrTail.length > MAX_STDERR_LINES) {
-				state.stderrTail.splice(0, state.stderrTail.length - MAX_STDERR_LINES);
+			stderrBuffer += chunk.toString("utf-8");
+			const lines = stderrBuffer.split("\n");
+			stderrBuffer = lines.pop() ?? "";
+			const complete = lines.filter(Boolean);
+			if (complete.length > 0) {
+				state.stderrTail.push(...complete);
+				if (state.stderrTail.length > MAX_STDERR_LINES) {
+					state.stderrTail.splice(0, state.stderrTail.length - MAX_STDERR_LINES);
+				}
+				throttledUpdate();
 			}
-			throttledUpdate();
 		});
 
 		proc.on("close", (code) => {
 			const remaining = parser.flush();
 			if (remaining.length > 0) handleEvents(remaining);
+
+			const stderrRest = stderrBuffer.trim();
+			stderrBuffer = "";
+			if (stderrRest) {
+				state.stderrTail.push(stderrRest);
+				if (state.stderrTail.length > MAX_STDERR_LINES) {
+					state.stderrTail.splice(0, state.stderrTail.length - MAX_STDERR_LINES);
+				}
+			}
 
 			if (updateTimer) {
 				clearTimeout(updateTimer);
@@ -253,7 +268,7 @@ function buildArgs(
 		args.push("--approval-mode", mode);
 	}
 
-	if (opts.model) {
+	if (opts.model && /^[a-zA-Z0-9._:/-]+$/.test(opts.model)) {
 		args.push("-m", opts.model);
 	}
 
@@ -275,6 +290,11 @@ function buildArgs(
 }
 
 function addToolCall(state: QwenRunState, tu: ToolUseInfo): void {
+	const existing = state.toolCalls.find((c) => c.id === tu.id);
+	if (existing) {
+		existing.input = tu.input;
+		return;
+	}
 	state.toolCalls.push({
 		id: tu.id,
 		name: tu.name,
