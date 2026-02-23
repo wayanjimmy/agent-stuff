@@ -8,11 +8,6 @@ const QUERY_REFERENCE = fs.readFileSync(
   "utf-8",
 );
 
-const ZREAD_REFERENCE = fs.readFileSync(
-  path.join(import.meta.dirname!, "vendor", "ZREAD_REFERENCE.md"),
-  "utf-8",
-);
-
 export function buildLibrarianSystemPrompt(
   maxTurns: number,
   workspace: string,
@@ -20,15 +15,11 @@ export function buildLibrarianSystemPrompt(
   defaultCount: number,
   backends: LibrarianBackend[],
 ): string {
-  const useSg = backends.includes("sourcegraph");
-  const useZread = backends.includes("zread");
-
   const backendLabel = backends.join("+");
 
   const toolSections: string[] = [];
 
-  if (useSg) {
-    toolSections.push(`### Sourcegraph (broad code search)
+  toolSections.push(`### Sourcegraph (broad code search)
 
 \`\`\`bash
 deno run --quiet --allow-net=sourcegraph.com ${vendorDir}/sourcegraph.ts \\
@@ -42,35 +33,8 @@ Use Sourcegraph for: regex/literal search across repos, symbol lookup (\`type:sy
 ## Sourcegraph Query Reference
 
 ${QUERY_REFERENCE}`);
-  }
 
-  if (useZread) {
-    toolSections.push(`### Zread via mcporter (semantic search + file reading)
-
-${ZREAD_REFERENCE}
-
-**Zread guardrails:**
-- When reading large files, pipe output to workspace and slice: \`mcporter call zread.read_file ... > ${workspace}/file.txt\` then read only the relevant range.
-- Never paste full file contents in your answer — extract only short excerpts (5–15 lines).`);
-  }
-
-  let strategyNote = "";
-  if (useSg && useZread) {
-    strategyNote = `
-## Backend Strategy
-
-You have two complementary backends: **Sourcegraph** and **Zread**.
-- Use **Sourcegraph** for discovery: broad search, regex patterns, cross-repo queries, symbol lookup, diffs.
-- Use **Zread** for depth: semantic doc search within a known repo, reading specific files, exploring repo structure.
-- Typical workflow: discover with Sourcegraph → drill down with Zread.
-- If one backend fails or returns no results, try the other.
-- If mcporter/zread fails (not installed, API error), fall back to Sourcegraph-only and note the failure briefly.`;
-  }
-
-  const citationBackends = [];
-  if (useSg) citationBackends.push('Sourcegraph "View on Sourcegraph" links');
-  if (useZread) citationBackends.push("GitHub/Zread URLs from search output");
-  const citationSources = citationBackends.join(", or ");
+  const citationSources = 'Sourcegraph "View on Sourcegraph" links';
 
   return `You are Librarian, an evidence-first code researcher.
 You search public code via ${backendLabel} to produce decision-ready briefs.
@@ -99,13 +63,12 @@ Determine repos, depth tier, and initial queries.
 ### Phase 2 — Run searches
 Follow this progression, stopping when you have enough evidence:
 1. Entry points — broad query for the main symbol/concept (default keyword pattern type)
-2. Symbols — \`type:symbol\` to find definitions${useSg ? "" : " (Sourcegraph only)"}
+2. Symbols — \`type:symbol\` to find definitions
 3. Callsites — search for usages of discovered symbols
 4. Tests — \`file:test\` or \`file:_test\` to find test patterns
-5. Diffs — \`type:diff\` for recent changes (if relevant)${useSg ? "" : " (Sourcegraph only)"}
+5. Diffs — \`type:diff\` for recent changes (if relevant)
 6. Regex patterns — use \`--pattern-type regexp\` for regex-based searches
 7. Cross-repo — broaden to related repos if needed
-${useZread ? "8. Deep read — use Zread `read_file` for key files identified in earlier phases" : ""}
 
 ### Phase 3 — Synthesize
 Produce the final brief in the output format below.

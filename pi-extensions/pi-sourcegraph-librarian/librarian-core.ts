@@ -49,8 +49,8 @@ export interface LibrarianDetails {
   runs: LibrarianRunDetails[];
 }
 
-export type LibrarianBackend = "sourcegraph" | "zread";
-export const ALL_BACKENDS: LibrarianBackend[] = ["sourcegraph", "zread"];
+export type LibrarianBackend = "sourcegraph";
+export const ALL_BACKENDS: LibrarianBackend[] = ["sourcegraph"];
 export const DEFAULT_BACKENDS: LibrarianBackend[] = ["sourcegraph"];
 
 export function parseBackends(value: unknown): LibrarianBackend[] {
@@ -77,11 +77,11 @@ export const LibrarianParams = Type.Object({
     }),
   ),
   backends: Type.Optional(
-    Type.Array(Type.Enum({ sourcegraph: "sourcegraph", zread: "zread" }), {
+    Type.Array(Type.Enum({ sourcegraph: "sourcegraph" }), {
       description:
-        'Search backends to use. "sourcegraph" for broad code search (regex, symbols, diffs). "zread" for semantic doc search, full file reading, and repo structure browsing. Default: ["sourcegraph"].',
+        'Search backend to use. "sourcegraph" for broad code search (regex, symbols, diffs). Default: ["sourcegraph"].',
       minItems: 1,
-      maxItems: 2,
+      maxItems: 1,
       default: ["sourcegraph"],
     }),
   ),
