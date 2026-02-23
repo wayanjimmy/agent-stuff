@@ -1,5 +1,5 @@
 ---
-name: laravel-boost-mcporter
+name: laravel-boost
 description: Access Laravel Boost MCP tools via mcporter for Laravel development tasks. Use for querying application info, database schema, routes, config, documentation search, tinker execution, and debugging.
 ---
 
