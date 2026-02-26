@@ -1,11 +1,14 @@
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import { WebSearchParams, type WebSearchParamsType } from "./web-search-params.js";
 import { performSearch, type SearchState } from "./web-search-client.js";
 import { renderWebSearchCall, renderWebSearchResult } from "./web-search-ui.js";
-import { loadApiKeys } from "./api-key-manager.js";
+import { loadApiKeys, createApiKeyManager } from "./api-key-manager.js";
 
 /** Tool name constant for consistency */
 const TOOL_NAME = "web_search";
+
+/** Command name constant for consistency */
+const COMMAND_NAME = "web-search-key";
 
 export default function webSearchExtension(pi: ExtensionAPI) {
   pi.registerTool({
@@ -68,6 +71,59 @@ export default function webSearchExtension(pi: ExtensionAPI) {
 
     renderResult(result, opts, theme) {
       return renderWebSearchResult(result, opts, theme);
+    },
+  });
+
+  pi.registerCommand(COMMAND_NAME, {
+    description: "Show API key status for web search",
+    async handler(_args: string, ctx: ExtensionCommandContext) {
+      const keys = loadApiKeys();
+      const keyManager = createApiKeyManager();
+
+      if (!ctx.hasUI) {
+        console.log(`TAVILY_API_KEYS: ${keys.length} key(s) configured`);
+        if (keyManager) {
+          const status = keyManager.getKeyStatus();
+          for (const k of status) {
+            const statusStr = k.available ? "available" : "unavailable";
+            console.log(`  [${k.index}] ${k.maskedKey}: ${statusStr} (failures: ${k.failureCount})`);
+          }
+        }
+        return;
+      }
+
+      if (keys.length === 0) {
+        ctx.ui.notify(
+          "No API keys configured. Set TAVILY_API_KEYS environment variable with comma-separated keys",
+          "warning"
+        );
+        return;
+      }
+
+      if (!keyManager) {
+        ctx.ui.notify("Failed to initialize key manager", "error");
+        return;
+      }
+
+      const status = keyManager.getKeyStatus();
+      const available = keyManager.getAvailableKeyCount();
+      const total = keyManager.getTotalKeyCount();
+
+      const lines: string[] = [
+        `API Key Status: ${available}/${total} available`,
+        "",
+      ];
+
+      for (const k of status) {
+        const icon = k.available ? "✓" : "✗";
+        const statusStr = k.inCooldown ? "(cooldown)" : "";
+        lines.push(`${icon} [${k.index}] ${k.maskedKey} ${statusStr}`);
+        if (k.failureCount > 0) {
+          lines.push(`   failures: ${k.failureCount}`);
+        }
+      }
+
+      ctx.ui.notify(lines.join("\n"), available > 0 ? "success" : "warning");
     },
   });
 }

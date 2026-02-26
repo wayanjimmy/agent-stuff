@@ -105,7 +105,7 @@ export function performSearch(
       ...state,
       status: "error",
       error:
-        "No API keys found. Set TAVILY_API_KEY or TAVILY_API_KEYS environment variable",
+        "No API keys found. Set TAVILY_API_KEYS environment variable with comma-separated keys",
       endedAt: Date.now(),
     });
   }

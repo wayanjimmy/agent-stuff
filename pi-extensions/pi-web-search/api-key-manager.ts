@@ -127,7 +127,7 @@ export class ApiKeyManager {
     maskedKey: string;
     available: boolean;
     failureCount: number;
-    inCooldown: boolean
+    inCooldown: boolean;
   }> {
     const now = Date.now();
     return this.keys.map((k, i) => ({
@@ -151,25 +151,14 @@ function maskKey(key: string): string {
 }
 
 /**
- * Load API keys from environment variables only
- * TAVILY_API_KEYS takes precedence (comma-separated), falls back to TAVILY_API_KEY
+ * Load API keys from TAVILY_API_KEYS environment variable (comma-separated)
  */
 export function loadApiKeys(): string[] {
-  const keys: string[] = [];
-
-  // Check TAVILY_API_KEYS (comma-separated for multiple keys)
   const envKeys = process.env.TAVILY_API_KEYS;
-  if (envKeys) {
-    keys.push(...envKeys.split(',').map(k => k.trim()).filter(k => k.length > 0));
+  if (!envKeys) {
+    return [];
   }
-
-  // Check TAVILY_API_KEY (single key, backward compatible)
-  const envKey = process.env.TAVILY_API_KEY;
-  if (envKey && !keys.includes(envKey)) {
-    keys.push(envKey);
-  }
-
-  return keys;
+  return envKeys.split(',').map(k => k.trim()).filter(k => k.length > 0);
 }
 
 /**
