@@ -1,7 +1,3 @@
-import { homedir } from "node:os";
-import { join } from "node:path";
-import { readFile } from "node:fs/promises";
-
 export interface ApiKeyState {
   key: string;
   lastUsed: number;
@@ -155,57 +151,8 @@ function maskKey(key: string): string {
 }
 
 /**
- * Load API keys from environment variables and config file
- * Priority: TAVILY_API_KEYS env > TAVILY_API_KEY env > config file apiKeys > config file apiKey
- */
-export async function loadApiKeysFromAllSources(): Promise<string[]> {
-  const keys: string[] = [];
-
-  // Check TAVILY_API_KEYS (comma-separated for multiple keys)
-  const envKeys = process.env.TAVILY_API_KEYS;
-  if (envKeys) {
-    keys.push(...envKeys.split(',').map(k => k.trim()).filter(k => k.length > 0));
-  }
-
-  // Check TAVILY_API_KEY (single key, backward compatible)
-  const envKey = process.env.TAVILY_API_KEY;
-  if (envKey && !keys.includes(envKey)) {
-    keys.push(envKey);
-  }
-
-  // Check config file
-  const configPaths = [
-    join(homedir(), ".pi", "extensions", "pi-web-search.json"),
-    join(process.cwd(), ".pi", "extensions", "pi-web-search.json"),
-  ];
-
-  for (const configPath of configPaths) {
-    try {
-      const config = JSON.parse(await readFile(configPath, "utf-8"));
-
-      // Support apiKeys array
-      if (Array.isArray(config.apiKeys)) {
-        for (const key of config.apiKeys) {
-          if (typeof key === "string" && key.trim().length > 0 && !keys.includes(key.trim())) {
-            keys.push(key.trim());
-          }
-        }
-      }
-
-      // Support legacy apiKey single key
-      if (config.apiKey && typeof config.apiKey === "string" && !keys.includes(config.apiKey)) {
-        keys.push(config.apiKey);
-      }
-    } catch {
-      // Config file doesn't exist or is invalid, continue
-    }
-  }
-
-  return keys;
-}
-
-/**
- * Synchronous version - loads only from environment variables
+ * Load API keys from environment variables only
+ * TAVILY_API_KEYS takes precedence (comma-separated), falls back to TAVILY_API_KEY
  */
 export function loadApiKeys(): string[] {
   const keys: string[] = [];
@@ -226,29 +173,13 @@ export function loadApiKeys(): string[] {
 }
 
 /**
- * Create an ApiKeyManager from loaded keys
+ * Create an ApiKeyManager from environment variables
  */
 export function createApiKeyManager(
   maxFailures?: number,
   cooldownMs?: number
 ): ApiKeyManager | undefined {
   const keys = loadApiKeys();
-
-  if (keys.length === 0) {
-    return undefined;
-  }
-
-  return new ApiKeyManager({ keys, maxFailures, cooldownMs });
-}
-
-/**
- * Create an ApiKeyManager from all sources (async - includes config file)
- */
-export async function createApiKeyManagerAsync(
-  maxFailures?: number,
-  cooldownMs?: number
-): Promise<ApiKeyManager | undefined> {
-  const keys = await loadApiKeysFromAllSources();
 
   if (keys.length === 0) {
     return undefined;
