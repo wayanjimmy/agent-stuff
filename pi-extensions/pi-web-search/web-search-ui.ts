@@ -1,25 +1,36 @@
 import { getMarkdownTheme } from "@mariozechner/pi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "@mariozechner/pi-tui";
-import type { SearchState } from "./web-search-client.ts";
+import type { SearchState } from "./web-search-client.js";
 
-export function renderWebSearchCall(args: any, theme: any): any {
-  const query = typeof args?.query === "string" ? args.query.trim() : "";
-  const searchDepth = typeof args?.search_depth === "string" ? args.search_depth : "basic";
-  const topic = typeof args?.topic === "string" ? args.topic : "general";
+/**
+ * Renders the web_search tool call for display in the TUI.
+ */
+export function renderWebSearchCall(args: Record<string, unknown>, theme: Record<string, (text: string) => string>): Text {
+  const query = typeof args.query === "string" ? args.query.trim() : "";
+  const searchDepth = typeof args.search_depth === "string" ? args.search_depth : "basic";
+  const topic = typeof args.topic === "string" ? args.topic : "general";
   const preview = shorten(query.replace(/\s+/g, " ").trim(), 70);
 
-  const title = theme.fg("toolTitle", theme.bold("web_search"));
-  const scope = theme.fg("muted", `${topic} · ${searchDepth}`);
+  const title = theme.toolTitle(theme.bold("web_search"));
+  const scope = theme.muted(`${topic} · ${searchDepth}`);
   const text = title + (preview ? `\n${scope} · ${preview}` : `\n${scope}`);
   return new Text(text, 0, 0);
 }
 
+interface RenderOptions {
+  expanded: boolean;
+  isPartial: boolean;
+}
+
+/**
+ * Renders the web_search tool result for display in the TUI.
+ */
 export function renderWebSearchResult(
-  result: any,
-  opts: { expanded: boolean; isPartial: boolean },
-  theme: any
-): any {
-  const state = result.details as SearchState | undefined;
+  result: { content: Array<{ type: string; text: string }>; details?: SearchState },
+  opts: RenderOptions,
+  theme: Record<string, (text: string) => string>
+): Text | Container {
+  const state = result.details;
   if (!state) {
     const text = result.content[0];
     return new Text(text?.type === "text" ? text.text : "(no output)", 0, 0);
@@ -33,23 +44,26 @@ export function renderWebSearchResult(
     ? ` · ${state.responseTime.toFixed(2)}s`
     : "";
 
+  const keysInfo = state.keysUsed && state.keysUsed > 1
+    ? ` · ${state.keysUsed} keys`
+    : "";
+
   const header =
     icon +
     " " +
-    theme.fg("toolTitle", theme.bold("web_search ")) +
-    theme.fg(
-      "dim",
-      `${totalResults} result${totalResults === 1 ? "" : "s"}${responseTimeInfo}`
+    theme.toolTitle(theme.bold("web_search ")) +
+    theme.dim(
+      `${totalResults} result${totalResults === 1 ? "" : "s"}${responseTimeInfo}${keysInfo}`
     );
 
   if (status === "running") {
     let text = header;
-    text += `\n\n${theme.fg("muted", "Searching Tavily…")}`;
+    text += `\n\n${theme.dim("Searching Tavily…")}`;
     return new Text(text, 0, 0);
   }
 
   if (state.error) {
-    let text = `${header}\n\n${theme.fg("error", state.error)}`;
+    const text = `${header}\n\n${theme.error(state.error)}`;
     return new Text(text, 0, 0);
   }
 
@@ -58,9 +72,9 @@ export function renderWebSearchResult(
   if (!opts.expanded) {
     const allLines = assistantText.split("\n");
     const previewLines = allLines.slice(0, 18).join("\n");
-    let text = `${header}\n\n${theme.fg("toolOutput", previewLines)}`;
+    let text = `${header}\n\n${previewLines}`;
     if (allLines.length > 18) {
-      text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
+      text += `\n${theme.dim("(Ctrl+O to expand)")}`;
     }
     return new Text(text, 0, 0);
   }
@@ -73,16 +87,16 @@ export function renderWebSearchResult(
   return container;
 }
 
-function statusIcon(status: string, theme: any): string {
+function statusIcon(status: string, theme: Record<string, (text: string) => string>): string {
   switch (status) {
     case "done":
-      return theme.fg("success", "✓");
+      return theme.success("✓");
     case "error":
-      return theme.fg("error", "✗");
+      return theme.error("✗");
     case "aborted":
-      return theme.fg("warning", "◼");
+      return theme.warning("◼");
     default:
-      return theme.fg("warning", "⏳");
+      return theme.warning("⏳");
   }
 }
 
@@ -111,7 +125,7 @@ function formatResults(state: SearchState): string {
       }
     }
   } else {
-    lines.push("\nNo results found.");
+    lines.push("\nNo results found");
   }
 
   return lines.join("\n");

@@ -1,4 +1,4 @@
-import { Type } from "@sinclair/typebox";
+import { Type, type Static } from "@sinclair/typebox";
 
 export const WebSearchParams = Type.Object({
   query: Type.String({
@@ -50,3 +50,5 @@ export const WebSearchParams = Type.Object({
     )
   ),
 });
+
+export type WebSearchParamsType = Static<typeof WebSearchParams>;

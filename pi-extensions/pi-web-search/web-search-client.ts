@@ -1,10 +1,13 @@
-import { homedir } from "node:os";
-import { join } from "node:path";
-import { readFile } from "node:fs/promises";
-import type { Static } from "@sinclair/typebox";
-import type { WebSearchParams } from "./web-search-params.ts";
+import type { WebSearchParamsType } from "./web-search-params.js";
+import { ApiKeyManager, createApiKeyManagerAsync } from "./api-key-manager.js";
 
 const TAVILY_API_URL = "https://api.tavily.com/search";
+
+/** Maximum content size in bytes before truncation (50KB) */
+const MAX_CONTENT_BYTES = 50 * 1024;
+
+/** Maximum number of lines before truncation */
+const MAX_CONTENT_LINES = 2000;
 
 export interface TavilyResult {
   title: string;
@@ -14,7 +17,7 @@ export interface TavilyResult {
   score: number;
 }
 
-export interface TavilyResponse {
+interface TavilyResponse {
   query: string;
   answer?: string;
   results: TavilyResult[];
@@ -37,40 +40,21 @@ export interface SearchState {
   error?: string;
   startedAt?: number;
   endedAt?: number;
+  keysUsed?: number;
 }
 
-async function getApiKey(): Promise<string | undefined> {
-  // Check environment variable first
-  const envKey = process.env.TAVILY_API_KEY;
-  if (envKey) {
-    return envKey;
-  }
-
-  // Check config file
-  const configPaths = [
-    join(homedir(), ".pi", "extensions", "pi-web-search.json"),
-    join(process.cwd(), ".pi", "extensions", "pi-web-search.json"),
-  ];
-
-  for (const configPath of configPaths) {
-    try {
-      const config = JSON.parse(await readFile(configPath, "utf-8"));
-      if (config.apiKey) {
-        return config.apiKey;
-      }
-    } catch {
-      // Config file doesn't exist or is invalid, continue to next
-    }
-  }
-
-  return undefined;
+interface TruncationResult {
+  content: string;
+  truncated: boolean;
+  totalLines: number;
+  totalBytes: number;
 }
 
-function truncateHead(
-  content: string,
-  maxBytes: number = 50000,
-  maxLines: number = 2000
-): { content: string; truncated: boolean; totalLines: number; totalBytes: number } {
+/**
+ * Truncates content to stay within byte and line limits.
+ * Preserves the end of the content (head truncation) to keep the most relevant parts.
+ */
+function truncateHead(content: string, maxBytes: number, maxLines: number): TruncationResult {
   const totalBytes = Buffer.byteLength(content, "utf-8");
   const totalLines = content.split("\n").length;
 
@@ -101,25 +85,32 @@ function truncateHead(
   };
 }
 
+/**
+ * Performs a web search using the Tavily API with automatic key rotation.
+ *
+ * @param params - Search parameters validated by TypeBox
+ * @param state - Initial search state to be updated
+ * @param signal - Optional AbortSignal for cancellation support
+ * @returns Updated search state with results or error information
+ */
 export async function performSearch(
-  params: Static<typeof WebSearchParams>,
+  params: WebSearchParamsType,
   state: SearchState,
   signal?: AbortSignal
 ): Promise<SearchState> {
-  const apiKey = await getApiKey();
+  const keyManager = await createApiKeyManagerAsync();
 
-  if (!apiKey) {
+  if (!keyManager) {
     return {
       ...state,
       status: "error",
       error:
-        "Tavily API key not found. Set TAVILY_API_KEY environment variable or use /web-search-key command to configure.",
+        "Tavily API key not found. Set TAVILY_API_KEY or TAVILY_API_KEYS (comma-separated) environment variable, or use /web-search-key command to configure",
       endedAt: Date.now(),
     };
   }
 
-  const requestBody = {
-    api_key: apiKey,
+  const requestBodyBase = {
     query: params.query,
     search_depth: params.search_depth ?? "basic",
     max_results: params.max_results ?? 10,
@@ -129,91 +120,136 @@ export async function performSearch(
     topic: params.topic ?? "general",
   };
 
-  try {
-    const response = await fetch(TAVILY_API_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(requestBody),
-      signal,
-    });
+  let lastError: string | undefined;
+  let keysAttempted = 0;
 
-    if (!response.ok) {
-      let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
-      try {
-        const errorData = (await response.json()) as TavilyError;
-        errorMessage =
-          errorData.detail?.error || errorData.error || errorMessage;
-      } catch {
-        // Use default error message
-      }
-
-      if (response.status === 401) {
-        errorMessage = "Invalid API key. Please check your Tavily API key.";
-      } else if (response.status === 429) {
-        errorMessage = "Rate limit exceeded. Please wait before trying again.";
-      }
-
-      return {
-        ...state,
-        status: "error",
-        error: errorMessage,
-        endedAt: Date.now(),
-      };
+  // Try each available key until one succeeds
+  while (keysAttempted < keyManager.getTotalKeyCount()) {
+    const apiKey = keyManager.getNextKey();
+    if (!apiKey) {
+      break;
     }
 
-    const data = (await response.json()) as TavilyResponse;
+    keysAttempted++;
 
-    // Truncate results if needed
-    const processedResults = data.results.map((result) => {
-      const contentTruncation = truncateHead(result.content);
-      const processed: TavilyResult = {
-        ...result,
-        content: contentTruncation.content,
-      };
+    try {
+      const response = await fetch(TAVILY_API_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ ...requestBodyBase, api_key: apiKey }),
+        signal,
+      });
 
-      if (result.raw_content) {
-        const rawTruncation = truncateHead(result.raw_content);
-        processed.raw_content = rawTruncation.content;
-      }
+      if (!response.ok) {
+        let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+        try {
+          const errorData = (await response.json()) as TavilyError;
+          errorMessage = errorData.detail?.error || errorData.error || errorMessage;
+        } catch {
+          // Use default error message
+        }
 
-      return processed;
-    });
+        if (response.status === 401) {
+          errorMessage = "Invalid API key";
+        } else if (response.status === 429) {
+          errorMessage = "Rate limit exceeded";
+        }
 
-    return {
-      ...state,
-      status: "done",
-      query: data.query,
-      answer: data.answer,
-      results: processedResults,
-      responseTime: data.response_time,
-      endedAt: Date.now(),
-    };
-  } catch (error) {
-    if (error instanceof Error) {
-      if (error.name === "AbortError") {
+        // Report failure and check if we should retry with another key
+        const shouldRetry = keyManager.reportFailure(apiKey, response.status);
+        if (shouldRetry) {
+          lastError = errorMessage;
+          continue; // Try next key
+        }
+
+        // No more keys to try
         return {
           ...state,
-          status: "aborted",
-          error: "Search was cancelled.",
+          status: "error",
+          error: errorMessage,
+          keysUsed: keysAttempted,
           endedAt: Date.now(),
         };
       }
 
+      // Success - report it and process results
+      keyManager.reportSuccess(apiKey);
+
+      const data = (await response.json()) as TavilyResponse;
+
+      // Truncate results if needed
+      const processedResults = data.results.map((result) => {
+        const contentTruncation = truncateHead(result.content, MAX_CONTENT_BYTES, MAX_CONTENT_LINES);
+        const processed: TavilyResult = {
+          ...result,
+          content: contentTruncation.content,
+        };
+
+        if (result.raw_content) {
+          const rawTruncation = truncateHead(result.raw_content, MAX_CONTENT_BYTES, MAX_CONTENT_LINES);
+          processed.raw_content = rawTruncation.content;
+        }
+
+        return processed;
+      });
+
+      return {
+        ...state,
+        status: "done",
+        query: data.query,
+        answer: data.answer,
+        results: processedResults,
+        responseTime: data.response_time,
+        keysUsed: keysAttempted,
+        endedAt: Date.now(),
+      };
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.name === "AbortError") {
+          return {
+            ...state,
+            status: "aborted",
+            error: "Search was cancelled",
+            keysUsed: keysAttempted,
+            endedAt: Date.now(),
+          };
+        }
+
+        // Report network failure and check if we should retry
+        const shouldRetry = keyManager.reportFailure(apiKey);
+        if (shouldRetry) {
+          lastError = `Network error: ${error.message}`;
+          continue; // Try next key
+        }
+
+        return {
+          ...state,
+          status: "error",
+          error: `Network error: ${error.message}`,
+          keysUsed: keysAttempted,
+          endedAt: Date.now(),
+        };
+      }
+
+      // Unexpected error
       return {
         ...state,
         status: "error",
-        error: `Network error: ${error.message}`,
+        error: "An unexpected error occurred during the search",
+        keysUsed: keysAttempted,
         endedAt: Date.now(),
       };
     }
-
-    return {
-      ...state,
-      status: "error",
-      error: "An unexpected error occurred during the search.",
-      endedAt: Date.now(),
-    };
   }
+
+  // All keys exhausted
+  return {
+    ...state,
+    status: "error",
+    error: lastError || "All API keys exhausted or unavailable",
+    keysUsed: keysAttempted,
+    endedAt: Date.now(),
+  };
 }
