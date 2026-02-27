@@ -218,6 +218,10 @@ async function main() {
       params = JSON.parse(input.trim());
     } catch {
       console.error("Error: provide JSON on stdin or use --query flag");
+      console.error("");
+      console.error("Usage:");
+      console.error("  ./sourcegraph.ts --query \"<search query>\"");
+      console.error("  echo '{\"query\":\"<search query>\"}' | ./sourcegraph.ts");
       Deno.exit(1);
     }
   }
