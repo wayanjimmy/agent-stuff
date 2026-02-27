@@ -15,6 +15,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
+import { spawn } from "node:child_process";
 
 // ============================================
 // Types
@@ -69,7 +70,131 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
-async function searchSourcegraph(
+/**
+ * Parse GraphQL response into SearchResult
+ */
+function parseSearchResponse(json: any, originalQuery: string, contextWindow: number): SearchResult {
+  if (json.errors?.length) {
+    throw new Error(json.errors.map((e: { message: string }) => e.message).join("; "));
+  }
+
+  const results = json.data?.search?.results;
+  if (!results) {
+    return {
+      query: originalQuery,
+      matches: [],
+      stats: { matchCount: 0, resultCount: 0, elapsed: "0ms" },
+    };
+  }
+
+  const matches: SearchMatch[] = [];
+
+  // Process FileMatch results only
+  for (const result of results.results || []) {
+    if (result.__typename === "FileMatch") {
+      if (!result.repository || !result.file || !result.lineMatches) continue;
+
+      const lineMatches: LineMatch[] = result.lineMatches
+        .slice(0, contextWindow > 0 ? contextWindow * 2 + 1 : 5)
+        .map((lm: { preview: string; lineNumber: number }) => ({
+          line: lm.preview,
+          lineNumber: lm.lineNumber,
+        }));
+
+      matches.push({
+        repo: result.repository.name,
+        path: result.file.path,
+        url: `https://sourcegraph.com${result.file.url}`,
+        lineMatches,
+      });
+    }
+  }
+
+  return {
+    query: originalQuery,
+    matches,
+    stats: {
+      matchCount: results.matchCount ?? 0,
+      resultCount: results.resultCount ?? 0,
+      elapsed: `${results.elapsedMilliseconds ?? 0}ms`,
+    },
+  };
+}
+
+/**
+ * Search using curl as a fallback when fetch is unavailable or fails.
+ * More reliable in some environments and provides better error diagnostics.
+ */
+async function searchWithCurl(
+  query: string,
+  count: number,
+  contextWindow: number,
+  timeoutMs: number,
+): Promise<SearchResult> {
+  const requestBody = JSON.stringify({
+    query: SEARCH_QUERY,
+    variables: {
+      query: `${query} count:${count}`,
+    },
+  });
+
+  return new Promise((resolve, reject) => {
+    const args = [
+      "-s", // silent mode
+      "-S", // show errors
+      "-L", // follow redirects
+      "-m", `${Math.ceil(timeoutMs / 1000)}`, // max time in seconds
+      "-H", "Content-Type: application/json",
+      "-H", "User-Agent: pi-sourcegraph/1.0 (curl)",
+      "-d", requestBody,
+      SOURCEGRAPH_API_URL,
+    ];
+
+    const proc = spawn("curl", args, {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let stdout = "";
+    let stderr = "";
+
+    proc.stdout?.on("data", (data) => {
+      stdout += data.toString();
+    });
+
+    proc.stderr?.on("data", (data) => {
+      stderr += data.toString();
+    });
+
+    proc.on("error", (error) => {
+      reject(new Error(`curl spawn failed: ${error.message}`));
+    });
+
+    proc.on("close", (code) => {
+      if (code !== 0) {
+        reject(new Error(`curl exited with code ${code}: ${stderr || "unknown error"}`));
+        return;
+      }
+
+      try {
+        const json = JSON.parse(stdout);
+        resolve(parseSearchResponse(json, query, contextWindow));
+      } catch (parseError) {
+        reject(new Error(`Failed to parse curl response: ${parseError}. Response: ${stdout.slice(0, 200)}`));
+      }
+    });
+
+    // Manual timeout
+    setTimeout(() => {
+      proc.kill("SIGTERM");
+      reject(new Error("curl request timed out"));
+    }, timeoutMs);
+  });
+}
+
+/**
+ * Search using native fetch API.
+ */
+async function searchWithFetch(
   query: string,
   count: number,
   contextWindow: number,
@@ -83,7 +208,7 @@ async function searchSourcegraph(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "User-Agent": "pi-sourcegraph/1.0",
+        "User-Agent": "pi-sourcegraph/1.0 (fetch)",
       },
       body: JSON.stringify({
         query: SEARCH_QUERY,
@@ -99,55 +224,47 @@ async function searchSourcegraph(
     }
 
     const json = await response.json();
-
-    if (json.errors?.length) {
-      throw new Error(json.errors.map((e: { message: string }) => e.message).join("; "));
-    }
-
-    const results = json.data?.search?.results;
-    if (!results) {
-      return {
-        query,
-        matches: [],
-        stats: { matchCount: 0, resultCount: 0, elapsed: "0ms" },
-      };
-    }
-
-    const matches: SearchMatch[] = [];
-
-    // Process FileMatch results only
-    for (const result of results.results || []) {
-      if (result.__typename === "FileMatch") {
-        if (!result.repository || !result.file || !result.lineMatches) continue;
-
-        const lineMatches: LineMatch[] = result.lineMatches
-          .slice(0, contextWindow > 0 ? contextWindow * 2 + 1 : 5)
-          .map((lm: { preview: string; lineNumber: number }) => ({
-            line: lm.preview,
-            lineNumber: lm.lineNumber,
-          }));
-
-        matches.push({
-          repo: result.repository.name,
-          path: result.file.path,
-          url: `https://sourcegraph.com${result.file.url}`,
-          lineMatches,
-        });
-      }
-    }
-
-    return {
-      query,
-      matches,
-      stats: {
-        matchCount: results.matchCount ?? 0,
-        resultCount: results.resultCount ?? 0,
-        elapsed: `${results.elapsedMilliseconds ?? 0}ms`,
-      },
-    };
+    return parseSearchResponse(json, query, contextWindow);
   } finally {
     clearTimeout(timeout);
   }
+}
+
+/**
+ * Main search function with fallback from fetch to curl.
+ * Tries fetch first, then falls back to curl if fetch fails or is unavailable.
+ */
+async function searchSourcegraph(
+  query: string,
+  count: number,
+  contextWindow: number,
+  timeoutMs: number,
+): Promise<SearchResult> {
+  const errors: string[] = [];
+
+  // Try fetch first
+  try {
+    return await searchWithFetch(query, count, contextWindow, timeoutMs);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    errors.push(`fetch: ${message}`);
+
+    // If fetch failed due to AbortError (timeout), don't try curl
+    if (message.includes("abort") || message.includes("AbortError")) {
+      throw new Error(`Search timed out after ${timeoutMs}ms`);
+    }
+  }
+
+  // Fallback to curl
+  try {
+    return await searchWithCurl(query, count, contextWindow, timeoutMs);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    errors.push(`curl: ${message}`);
+  }
+
+  // Both methods failed
+  throw new Error(`All search methods failed: ${errors.join("; ")}`);
 }
 
 function formatResult(result: SearchResult): string {
@@ -308,8 +425,18 @@ The tool returns code snippets with context and verifiable Sourcegraph links. Us
             details: { error: "timeout", query },
           };
         } else {
+          // Provide more helpful error messages for common failures
+          let helpText = "";
+          if (message.includes("fetch") && message.includes("curl")) {
+            helpText = " Both fetch and curl failed. Please check your network connection.";
+          } else if (message.includes("ENOTFOUND") || message.includes("getaddrinfo")) {
+            helpText = " DNS lookup failed. Check your internet connection.";
+          } else if (message.includes("ECONNREFUSED")) {
+            helpText = " Connection refused. Sourcegraph may be temporarily unavailable.";
+          }
+
           return {
-            content: [{ type: "text", text: `Search failed: ${message}` }],
+            content: [{ type: "text", text: `Search failed: ${message}${helpText}` }],
             details: { error: message, query },
           };
         }
