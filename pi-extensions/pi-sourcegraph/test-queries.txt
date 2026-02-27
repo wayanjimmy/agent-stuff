@@ -1,0 +1,509 @@
+# Test Queries for Sourcegraph Librarian Extension
+
+# Basic language searches
+lang:go rate limiting
+lang:typescript redux middleware
+lang:python flask authentication
+
+# With exclusions
+lang:go "context.WithTimeout" -file:test
+lang:react useEffect cleanup -file:test
+lang:java @RestController -file:test
+
+# Repository-specific
+repo:^github\.com/gorilla/mux$ Route
+repo:^github\.com/kubernetes/kubernetes$ PodScheduler
+repo:^github\.com/gin-gonic/gin$ context
+
+# Symbol searches
+lang:go "type Interface" type:symbol
+lang:typescript "interface " type:symbol
+lang:python "class " type:symbol
+
+# File path filters
+lang:go file:internal/ middleware
+lang:typescript file:hooks/ use
+lang:python file:models/ Model
+
+# Combined filters
+lang:go context.WithTimeout AND retry
+lang:typescript "useState" OR "useEffect"
+lang:python "with open" file:\.py$
+
+# Regex patterns (with patternType: regexp)
+lang:go func.*\(.*\).*error
+lang:typescript interface.*\{.*\}
+
+# Real-world patterns
+lang:go "sync.Mutex" usage
+lang:typescript "try-catch" async
+lang:python decorator
+lang:java @Autowired
+
+# Framework-specific
+lang:go gin.HandlerFunc
+lang:typescript express.Router
+lang:python flask.route
+lang:java @Entity
+
+# Testing patterns (should be excluded with -file:test)
+lang:go testing.T
+lang:typescript describe test
+lang:python unittest
+lang:java @Test
+
+# Common algorithms
+lang:go quicksort
+lang:typescript binary search
+lang:python merge sort
+lang:java breadth first search
+
+# API usage examples
+lang:go http.Get
+lang:typescript fetch api
+lang:python requests.get
+lang:java ResponseEntity
+
+# Database patterns
+lang:go database/sql
+lang:typescript prisma client
+lang:python sqlalchemy
+lang:java JpaRepository
+
+# Error handling
+lang:go "if err != nil"
+lang:typescript "catch (error)"
+lang:python "except Exception"
+lang:java "catch (Exception"
+
+# Configuration
+lang:go viper
+lang:typescript dotenv
+lang:python os.getenv
+lang:java @Value
+
+# Logging
+lang:go "log.Println"
+lang:typescript console.log
+lang:python "print("
+lang:java "System.out.println"
+
+# Middleware patterns
+lang:go middleware chain
+lang:typescript express middleware
+lang:python flask middleware
+lang:java @Filter
+
+# Common design patterns
+lang:go singleton
+lang:typescript factory pattern
+lang:python decorator pattern
+lang:java singleton pattern
+
+# Popular libraries
+lang:go "github.com/gorilla/mux"
+lang:typescript "from 'react'"
+lang:python "import numpy"
+lang:java "import org.springframework"
+
+# CLI tools
+lang:go cobra
+lang:typescript commander
+lang:python click
+lang:java picocli
+
+# Web frameworks
+lang:go "github.com/gin-gonic/gin"
+lang:typescript "from 'express'"
+lang:python "from flask"
+lang:java "RestController"
+
+# ORM examples
+lang:go gorm
+lang:typescript prisma
+lang:python sqlalchemy
+lang:java hibernate
+
+# Authentication
+lang:go jwt middleware
+lang:typescript passport
+lang:python flask-jwt
+lang:java spring security
+
+# Validation
+lang:go validator
+lang:typescript yup
+lang:python pydantic
+lang:java @Valid
+
+# HTTP clients
+lang:go http.Client
+lang:typescript axios
+lang:python requests
+lang:java RestTemplate
+
+# Async patterns
+lang:go goroutine
+lang:typescript async await
+lang:python asyncio
+lang:java CompletableFuture
+
+# Streaming
+lang:go io.Reader
+lang:typescript stream
+lang:python generator
+lang:java Stream
+
+# File I/O
+lang:go os.Open
+lang:typescript fs.readFile
+lang:python "open("
+lang:java Files.read
+
+# JSON handling
+lang:go json.Unmarshal
+lang:typescript JSON.parse
+lang:python json.loads
+lang:java ObjectMapper
+
+# Time/date
+lang:go time.Now
+lang:typescript Date()
+lang:python datetime
+lang:java LocalDateTime
+
+# Regular expressions
+lang:go regexp
+lang:typescript /pattern/
+lang:python re.
+lang:java Pattern.
+
+# Concurrency
+lang:go sync.WaitGroup
+lang:typescript Promise.all
+lang:python threading
+lang:java ExecutorService
+
+# Caching
+lang:go sync.Map
+lang:typescript redis
+lang:python functools.lru_cache
+lang:java @Cacheable
+
+# Retry logic
+lang:go retry
+lang:typescript retry-axios
+lang:python tenacity
+lang:java @Retryable
+
+# Rate limiting
+lang:go rate limiter
+lang:typescript rate-limiter
+lang:python rate limit
+lang:java @RateLimit
+
+# Pagination
+lang:go pagination
+lang:typescript pagination
+lang:python paginate
+lang:java Pageable
+
+# Sorting
+lang:go sort.Slice
+lang:typescript array.sort
+lang:python sorted
+lang:java Collections.sort
+
+# Searching
+lang:go binary search
+lang:typescript array.find
+lang:python bisect
+lang:java Collections.binarySearch
+
+# Data structures
+lang:go "map[string]"
+lang:typescript Map
+lang:python dict
+lang:java HashMap
+
+# Generics
+lang:go "any]"
+lang:typescript "<T>"
+lang:python TypeVar
+lang:java <T>
+
+# Reflection
+lang:go reflect
+lang:typescript typeof
+lang:python inspect
+lang:java Class.forName
+
+# Serialization
+lang:go json.Marshal
+lang:typescript JSON.stringify
+lang:python json.dumps
+lang:java toString
+
+# Deserialization
+lang:go json.Unmarshal
+lang:typescript JSON.parse
+lang:python json.loads
+lang:java fromJson
+
+# HTTP server
+lang:go http.HandleFunc
+lang:typescript app.listen
+lang:python app.run
+lang:java @SpringBootApplication
+
+# Websockets
+lang:go gorilla/websocket
+lang:typescript ws
+lang:python websockets
+lang:java @ServerEndpoint
+
+# GraphQL
+lang:go graphql
+lang:typescript apollo
+lang:python graphene
+lang:java graphql-java
+
+# GRPC
+lang:go grpc
+lang:typescript @grpc/grpc-js
+lang:python grpcio
+lang:java grpc-netty
+
+# Testing utilities
+lang:go testify
+lang:typescript jest
+lang:python pytest
+lang:java junit
+
+# Mocking
+lang:go mockgen
+lang:typescript sinon
+lang:python mock
+lang:java mockito
+
+# Benchmarking
+lang:go testing.B
+lang:typescript benchmark
+lang:python timeit
+lang:java JMH
+
+# Profiling
+lang:go pprof
+lang:typescript clinic
+lang:python cProfile
+lang:java VisualVM
+
+# Debugging
+lang:go fmt.Println
+lang:typescript debugger
+lang:python pdb
+lang:java debugger
+
+# Logging frameworks
+lang:go zap
+lang:typescript winston
+lang:python logging
+lang:java log4j
+
+# Metrics
+lang:go prometheus
+lang:typescript prom-client
+lang:python prometheus_client
+lang:java micrometer
+
+# Tracing
+lang:go opentracing
+lang:typescript opentelemetry
+lang:python opentelemetry
+lang:java opentelemetry
+
+# Monitoring
+lang:go expvar
+lang:typescript newrelic
+lang:python sentry
+lang:java datadog
+
+# Deployment
+lang:go Dockerfile
+lang:typescript Dockerfile
+lang:python Dockerfile
+lang:java Dockerfile
+
+# CI/CD
+lang:go .github/workflows
+lang:typescript .github/workflows
+lang:python .github/workflows
+lang:java .github/workflows
+
+# Build tools
+lang:go go.mod
+lang:typescript package.json
+lang:python requirements.txt
+lang:java pom.xml
+
+# Package managers
+lang:go go.sum
+lang:typescript yarn.lock
+lang:python Pipfile
+lang:java build.gradle
+
+# Configuration files
+lang:go .env
+lang:typescript .env
+lang:python .env
+lang:java application.properties
+
+# Documentation
+lang:go README.md
+lang:typescript README.md
+lang:python README.md
+lang:java README.md
+
+# License files
+lang:go LICENSE
+lang:typescript LICENSE
+lang:python LICENSE
+lang:java LICENSE
+
+# Contributing guidelines
+lang:go CONTRIBUTING.md
+lang:typescript CONTRIBUTING.md
+lang:python CONTRIBUTING.md
+lang:java CONTRIBUTING.md
+
+# Code of conduct
+lang:go CODE_OF_CONDUCT.md
+lang:typescript CODE_OF_CONDUCT.md
+lang:python CODE_OF_CONDUCT.md
+lang:java CODE_OF_CONDUCT.md
+
+# Security policies
+lang:go SECURITY.md
+lang:typescript SECURITY.md
+lang:python SECURITY.md
+lang:java SECURITY.md
+
+# Changelog
+lang:go CHANGELOG.md
+lang:typescript CHANGELOG.md
+lang:python CHANGELOG.md
+lang:java CHANGELOG.md
+
+# Versioning
+lang:go VERSION
+lang:typescript VERSION
+lang:python VERSION
+lang:java VERSION
+
+# Release notes
+lang:go RELEASE.md
+lang:typescript RELEASE.md
+lang:python RELEASE.md
+lang:java RELEASE.md
+
+# Migration guides
+lang:go MIGRATION.md
+lang:typescript MIGRATION.md
+lang:python MIGRATION.md
+lang:java MIGRATION.md
+
+# API documentation
+lang:go API.md
+lang:typescript API.md
+lang:python API.md
+lang:java API.md
+
+# Examples
+lang:go examples/
+lang:typescript examples/
+lang:python examples/
+lang:java examples/
+
+# Samples
+lang:go samples/
+lang:typescript samples/
+lang:python samples/
+lang:java samples/
+
+# Tutorials
+lang:go tutorials/
+lang:typescript tutorials/
+lang:python tutorials/
+lang:java tutorials/
+
+# Guides
+lang:go guides/
+lang:typescript guides/
+lang:python guides/
+lang:java guides/
+
+# FAQ
+lang:go FAQ.md
+lang:typescript FAQ.md
+lang:python FAQ.md
+lang:java FAQ.md
+
+# Troubleshooting
+lang:go TROUBLESHOOTING.md
+lang:typescript TROUBLESHOOTING.md
+lang:python TROUBLESHOOTING.md
+lang:java TROUBLESHOOTING.md
+
+# Getting started
+lang:go GETTING_STARTED.md
+lang:typescript GETTING_STARTED.md
+lang:python GETTING_STARTED.md
+lang:java GETTING_STARTED.md
+
+# Installation
+lang:go INSTALL.md
+lang:typescript INSTALL.md
+lang:python INSTALL.md
+lang:java INSTALL.md
+
+# Quickstart
+lang:go QUICKSTART.md
+lang:typescript QUICKSTART.md
+lang:python QUICKSTART.md
+lang:java QUICKSTART.md
+
+# Development
+lang:go DEVELOPMENT.md
+lang:typescript DEVELOPMENT.md
+lang:python DEVELOPMENT.md
+lang:java DEVELOPMENT.md
+
+# Architecture
+lang:go ARCHITECTURE.md
+lang:typescript ARCHITECTURE.md
+lang:python ARCHITECTURE.md
+lang:java ARCHITECTURE.md
+
+# Design
+lang:go DESIGN.md
+lang:typescript DESIGN.md
+lang:python DESIGN.md
+lang:java DESIGN.md
+
+# Roadmap
+lang:go ROADMAP.md
+lang:typescript ROADMAP.md
+lang:python ROADMAP.md
+lang:java ROADMAP.md
+
+# Contributing
+lang:go CONTRIBUTING.md
+lang:typescript CONTRIBUTING.md
+lang:python CONTRIBUTING.md
+lang:java CONTRIBUTING.md
+
+# Governance
+lang:go GOVERNANCE.md
+lang:typescript GOVERNANCE.md
+lang:python GOVERNANCE.md
+lang:java GOVERNANCE.md

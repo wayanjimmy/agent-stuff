@@ -1,7 +1,7 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 
 import { CodexAgentParams } from "./codex-params.ts";
-import { runCodexAgent, type CodexRunState } from "./codex-runner.ts";
+import { runCodexAgent } from "./codex-runner.ts";
 import { renderCodexCall, renderCodexResult } from "./codex-ui.ts";
 
 export default function codexAgentExtension(pi: ExtensionAPI) {
