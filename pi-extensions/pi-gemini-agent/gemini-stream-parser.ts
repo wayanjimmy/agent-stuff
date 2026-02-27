@@ -155,7 +155,12 @@ export class GeminiStreamParser {
       }
 
       // Map total_tokens if input/output aren't available
-      if (event.usage && !event.usage.inputTokens && !event.usage.outputTokens && event.usage.totalTokens) {
+      if (
+        event.usage &&
+        !event.usage.inputTokens &&
+        !event.usage.outputTokens &&
+        event.usage.totalTokens
+      ) {
         event.usage.inputTokens = event.usage.totalTokens;
       }
 
@@ -166,7 +171,12 @@ export class GeminiStreamParser {
     if (type === "error") {
       return {
         kind: "error",
-        message: typeof obj.message === "string" ? obj.message : typeof obj.error === "string" ? obj.error : "Unknown error",
+        message:
+          typeof obj.message === "string"
+            ? obj.message
+            : typeof obj.error === "string"
+              ? obj.error
+              : "Unknown error",
       };
     }
 

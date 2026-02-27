@@ -125,7 +125,9 @@ export default function codexAgentExtension(pi: ExtensionAPI) {
       ].join("\n");
 
       await ctx.waitForIdle();
-      pi.sendUserMessage(`Use the codex_agent tool with sandbox "read-only" for this task:\n\n${reviewPrompt}`);
+      pi.sendUserMessage(
+        `Use the codex_agent tool with sandbox "read-only" for this task:\n\n${reviewPrompt}`,
+      );
     },
   });
 
@@ -158,7 +160,9 @@ export default function codexAgentExtension(pi: ExtensionAPI) {
       ].join("\n");
 
       await ctx.waitForIdle();
-      pi.sendUserMessage(`Use the codex_agent tool with sandbox "read-only" for this task:\n\n${planPrompt}`);
+      pi.sendUserMessage(
+        `Use the codex_agent tool with sandbox "read-only" for this task:\n\n${planPrompt}`,
+      );
     },
   });
 }

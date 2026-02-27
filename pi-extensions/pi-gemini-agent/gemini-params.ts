@@ -31,7 +31,8 @@ export const GeminiAgentParams = Type.Object({
   ),
   includeDirectories: Type.Optional(
     Type.Array(Type.String(), {
-      description: "Additional directories to include in the workspace. Each maps to --include-directories.",
+      description:
+        "Additional directories to include in the workspace. Each maps to --include-directories.",
     }),
   ),
   continueSession: Type.Optional(

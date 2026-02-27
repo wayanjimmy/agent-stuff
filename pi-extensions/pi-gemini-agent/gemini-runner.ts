@@ -211,9 +211,9 @@ export async function runGeminiAgent(options: GeminiRunnerOptions): Promise<Gemi
       stderrBuffer += chunk.toString("utf-8");
       const lines = stderrBuffer.split("\n");
       stderrBuffer = lines.pop() ?? "";
-      const complete = lines.filter(Boolean).filter(line => {
+      const complete = lines.filter(Boolean).filter((line) => {
         // Filter out noisy messages
-        return !STDERR_FILTER_PATTERNS.some(pattern => pattern.test(line));
+        return !STDERR_FILTER_PATTERNS.some((pattern) => pattern.test(line));
       });
       if (complete.length > 0) {
         state.stderrTail.push(...complete);

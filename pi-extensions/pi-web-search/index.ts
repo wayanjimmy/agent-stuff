@@ -130,13 +130,13 @@ export default function webSearchExtension(pi: ExtensionAPI) {
       const refreshUsage = async () => {
         if (refreshInFlight) return;
         refreshInFlight = true;
-        
+
         try {
-          const fetchTimeout = new Promise<void>((_, reject) => 
-            setTimeout(() => reject(new Error('Timeout')), 5000)
+          const fetchTimeout = new Promise<void>((_, reject) =>
+            setTimeout(() => reject(new Error("Timeout")), 5000),
           );
           await Promise.race([keyManager.fetchAllUsage(), fetchTimeout]).catch(() => {});
-          
+
           updateKeys(
             keyManager.getKeyStatus().map((k) => ({
               ...k,
@@ -149,7 +149,7 @@ export default function webSearchExtension(pi: ExtensionAPI) {
       };
 
       refreshUsage();
-      
+
       // Wait for the widget to close before returning
       await waitForClose();
     },

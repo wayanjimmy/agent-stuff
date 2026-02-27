@@ -15,10 +15,12 @@ Access Zread MCP Server through mcporter to search and read GitHub repositories 
 ### Setup
 
 **1. Get your Z.AI API key**
+
 - Visit https://into.md/docs.z.ai/devpack/mcp/zread-mcp-server to obtain an API key
 - Or set the `ZAI_API_KEY` environment variable
 
 **2. Configure zread in mcporter**
+
 ```bash
 mcporter config add zread \
   --url https://api.z.ai/api/mcp/zread/mcp \
@@ -27,6 +29,7 @@ mcporter config add zread \
 ```
 
 This writes the configuration to `~/.mcporter/mcporter.json`:
+
 ```json
 {
   "servers": {
@@ -42,17 +45,20 @@ This writes the configuration to `~/.mcporter/mcporter.json`:
 ```
 
 **3. Verify the setup**
+
 ```bash
 mcporter list
 mcporter list zread --schema
 ```
 
 You should see:
+
 ```
 - zread (3 tools)
 ```
 
 **Troubleshooting**
+
 - If `mcporter list` shows no servers, verify your API key is set
 - Use `--dry-run` with `config add` to preview without writing
 - Use `--scope project` to configure for the current project instead of home
@@ -75,6 +81,7 @@ mcporter call zread.search_doc repo_name="owner/repo" query="your search query" 
 | `language` | string | no | `'zh'` or `'en'` (defaults to context language) |
 
 **Example:**
+
 ```bash
 mcporter call zread.search_doc repo_name="ardanlabs/service" query="logger pattern implementation" language="en"
 ```
@@ -94,6 +101,7 @@ mcporter call zread.read_file repo_name="owner/repo" file_path="path/to/file.go"
 | `file_path` | string | yes | Relative path to the file (e.g., `src/index.ts`) |
 
 **Example:**
+
 ```bash
 mcporter call zread.read_file repo_name="ardanlabs/service" file_path="foundation/logger/logger.go"
 ```
@@ -113,6 +121,7 @@ mcporter call zread.get_repo_structure repo_name="owner/repo" dir_path="/"
 | `dir_path` | string | no | Directory path to inspect (default: root `/`) |
 
 **Example:**
+
 ```bash
 mcporter call zread.get_repo_structure repo_name="ardanlabs/service" dir_path="foundation/logger"
 ```
@@ -120,6 +129,7 @@ mcporter call zread.get_repo_structure repo_name="ardanlabs/service" dir_path="f
 ## Workflow Patterns
 
 ### Pattern 1: Explore → Search → Read
+
 1. Get repository structure to understand layout
 2. Search for specific concepts/patterns
 3. Read relevant files for implementation details
@@ -136,6 +146,7 @@ mcporter call zread.read_file repo_name="owner/repo" file_path="src/middleware/l
 ```
 
 ### Pattern 2: Direct File Reading
+
 When you know the file path, read directly:
 
 ```bash
@@ -145,11 +156,13 @@ mcporter call zread.read_file repo_name="golang/go" file_path="src/net/http/serv
 ## Available Tools Reference
 
 List all tools with their schemas:
+
 ```bash
 mcporter list zread --schema
 ```
 
 **Zread provides 3 tools:**
+
 1. `search_doc` - Semantic search across documentation, issues, and commits
 2. `read_file` - Read full file contents
 3. `get_repo_structure` - Browse directory structure

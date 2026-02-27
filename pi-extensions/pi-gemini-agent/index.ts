@@ -30,9 +30,7 @@ export default function geminiAgentExtension(pi: ExtensionAPI) {
         cwd: typeof p.cwd === "string" ? p.cwd : undefined,
         approvalMode: typeof p.approvalMode === "string" ? p.approvalMode : undefined,
         model: typeof p.model === "string" ? p.model : undefined,
-        includeDirectories: Array.isArray(p.includeDirectories)
-          ? p.includeDirectories
-          : undefined,
+        includeDirectories: Array.isArray(p.includeDirectories) ? p.includeDirectories : undefined,
         continueSession: p.continueSession === true,
         resume: typeof p.resume === "string" ? p.resume : undefined,
         signal: signal ?? undefined,
@@ -88,7 +86,8 @@ export default function geminiAgentExtension(pi: ExtensionAPI) {
 
   // /gemini-researcher — deep research agent
   pi.registerCommand("gemini-researcher", {
-    description: "Use Gemini as a research specialist for deep analysis and web search. Usage: /gemini-researcher <task>",
+    description:
+      "Use Gemini as a research specialist for deep analysis and web search. Usage: /gemini-researcher <task>",
     async handler(args: string, ctx: ExtensionCommandContext) {
       let task = args.trim();
 

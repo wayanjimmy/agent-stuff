@@ -33,15 +33,16 @@ export function renderGeminiResult(
     ? ` · ${state.usage.totalTokens.toLocaleString()} tokens`
     : "";
 
-  const modelInfo = state.model
-    ? ` · ${theme.fg("muted", state.model)}`
-    : "";
+  const modelInfo = state.model ? ` · ${theme.fg("muted", state.model)}` : "";
 
   const header =
     icon +
     " " +
     theme.fg("toolTitle", theme.bold("gemini_agent ")) +
-    theme.fg("dim", `${totalToolCalls} tool call${totalToolCalls === 1 ? "" : "s"}${usageInfo}${modelInfo}`);
+    theme.fg(
+      "dim",
+      `${totalToolCalls} tool call${totalToolCalls === 1 ? "" : "s"}${usageInfo}${modelInfo}`,
+    );
 
   const toolsText = renderToolCalls(state.toolCalls, opts.expanded, theme);
 

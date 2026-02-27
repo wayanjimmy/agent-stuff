@@ -10,6 +10,9 @@
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check"
   },
+  "devDependencies": {
+    "oxfmt": "^0.35.0"
+  },
   "peerDependencies": {
     "@mariozechner/pi-ai": "*",
     "@mariozechner/pi-coding-agent": "*",
