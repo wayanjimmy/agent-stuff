@@ -1,5 +1,5 @@
 import type { WebSearchParamsType } from "./web-search-params.js";
-import { createApiKeyManager } from "./api-key-manager.js";
+import { getSharedApiKeyManager } from "./api-key-manager.js";
 
 const TAVILY_API_URL = "https://api.tavily.com/search";
 
@@ -96,9 +96,9 @@ function truncateHead(content: string, maxBytes: number, maxLines: number): Trun
 export function performSearch(
   params: WebSearchParamsType,
   state: SearchState,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<SearchState> {
-  const keyManager = createApiKeyManager();
+  const keyManager = getSharedApiKeyManager();
 
   if (!keyManager) {
     return Promise.resolve({
@@ -177,19 +177,28 @@ export function performSearch(
 
         // Success - report it and process results
         keyManager.reportSuccess(apiKey);
+        keyManager.incrementRequests(apiKey);
 
         const data = (await response.json()) as TavilyResponse;
 
         // Truncate results if needed
         const processedResults = data.results.map((result) => {
-          const contentTruncation = truncateHead(result.content, MAX_CONTENT_BYTES, MAX_CONTENT_LINES);
+          const contentTruncation = truncateHead(
+            result.content,
+            MAX_CONTENT_BYTES,
+            MAX_CONTENT_LINES,
+          );
           const processed: TavilyResult = {
             ...result,
             content: contentTruncation.content,
           };
 
           if (result.raw_content) {
-            const rawTruncation = truncateHead(result.raw_content, MAX_CONTENT_BYTES, MAX_CONTENT_LINES);
+            const rawTruncation = truncateHead(
+              result.raw_content,
+              MAX_CONTENT_BYTES,
+              MAX_CONTENT_LINES,
+            );
             processed.raw_content = rawTruncation.content;
           }
 

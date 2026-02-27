@@ -2,7 +2,8 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-cod
 import { WebSearchParams, type WebSearchParamsType } from "./web-search-params.js";
 import { performSearch, type SearchState } from "./web-search-client.js";
 import { renderWebSearchCall, renderWebSearchResult } from "./web-search-ui.js";
-import { loadApiKeys, createApiKeyManager } from "./api-key-manager.js";
+import { showStatusWidget } from "./web-search-status-ui.js";
+import { loadApiKeys, getSharedApiKeyManager } from "./api-key-manager.js";
 
 /** Tool name constant for consistency */
 const TOOL_NAME = "web_search";
@@ -75,18 +76,21 @@ export default function webSearchExtension(pi: ExtensionAPI) {
   });
 
   pi.registerCommand(COMMAND_NAME, {
-    description: "Show API key status for web search",
+    description: "Show API key status popup",
     async handler(_args: string, ctx: ExtensionCommandContext) {
       const keys = loadApiKeys();
-      const keyManager = createApiKeyManager();
+      const keyManager = getSharedApiKeyManager();
 
       if (!ctx.hasUI) {
+        // Console fallback
         console.log(`TAVILY_API_KEYS: ${keys.length} key(s) configured`);
         if (keyManager) {
           const status = keyManager.getKeyStatus();
           for (const k of status) {
             const statusStr = k.available ? "available" : "unavailable";
-            console.log(`  [${k.index}] ${k.maskedKey}: ${statusStr} (failures: ${k.failureCount})`);
+            console.log(
+              `  [${k.index}] ${k.maskedKey}: ${statusStr} (failures: ${k.failureCount}, requests: ${k.requestsMade})`,
+            );
           }
         }
         return;
@@ -95,7 +99,7 @@ export default function webSearchExtension(pi: ExtensionAPI) {
       if (keys.length === 0) {
         ctx.ui.notify(
           "No API keys configured. Set TAVILY_API_KEYS environment variable with comma-separated keys",
-          "warning"
+          "warning",
         );
         return;
       }
@@ -105,25 +109,32 @@ export default function webSearchExtension(pi: ExtensionAPI) {
         return;
       }
 
+      // Fetch usage data first (fast API call)
+      // This should be quick but we don't want to block indefinitely
+      const fetchTimeout = new Promise<void>((resolve) => setTimeout(resolve, 2000));
+      await Promise.race([keyManager.fetchAllUsage(), fetchTimeout]);
+
+      // Get fresh status after fetch
       const status = keyManager.getKeyStatus();
       const available = keyManager.getAvailableKeyCount();
       const total = keyManager.getTotalKeyCount();
 
-      const lines: string[] = [
-        `API Key Status: ${available}/${total} available`,
-        "",
-      ];
-
-      for (const k of status) {
-        const icon = k.available ? "✓" : "✗";
-        const statusStr = k.inCooldown ? "(cooldown)" : "";
-        lines.push(`${icon} [${k.index}] ${k.maskedKey} ${statusStr}`);
-        if (k.failureCount > 0) {
-          lines.push(`   failures: ${k.failureCount}`);
-        }
-      }
-
-      ctx.ui.notify(lines.join("\n"), available > 0 ? "success" : "warning");
+      // Show the status popup overlay with fetched data
+      await showStatusWidget(
+        status.map((k) => ({
+          maskedKey: k.maskedKey,
+          requestsMade: k.requestsMade,
+          rateLimitRemaining: k.rateLimitRemaining,
+          rateLimitTotal: k.rateLimitTotal,
+          inCooldown: k.inCooldown,
+          cooldownRemainingMs: k.cooldownRemainingMs,
+          failureCount: k.failureCount,
+          plan: k.plan,
+        })),
+        available,
+        total,
+        ctx,
+      );
     },
   });
 }
@@ -144,9 +155,7 @@ function formatResults(state: SearchState): string {
       lines.push(item.content);
       if (item.raw_content) {
         lines.push("\n*Full content excerpt:*");
-        lines.push(
-          "> " + item.raw_content.slice(0, 500).replace(/\n/g, "\n> ")
-        );
+        lines.push("> " + item.raw_content.slice(0, 500).replace(/\n/g, "\n> "));
         if (item.raw_content.length > 500) {
           lines.push("> ...");
         }

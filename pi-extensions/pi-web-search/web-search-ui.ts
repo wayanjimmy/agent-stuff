@@ -5,7 +5,10 @@ import type { SearchState } from "./web-search-client.js";
 /**
  * Renders the web_search tool call for display in the TUI.
  */
-export function renderWebSearchCall(args: Record<string, unknown>, theme: Record<string, (text: string) => string>): Text {
+export function renderWebSearchCall(
+  args: Record<string, unknown>,
+  theme: Record<string, (text: string) => string>,
+): Text {
   const query = typeof args.query === "string" ? args.query.trim() : "";
   const searchDepth = typeof args.search_depth === "string" ? args.search_depth : "basic";
   const topic = typeof args.topic === "string" ? args.topic : "general";
@@ -28,7 +31,7 @@ interface RenderOptions {
 export function renderWebSearchResult(
   result: { content: Array<{ type: string; text: string }>; details?: SearchState },
   opts: RenderOptions,
-  theme: Record<string, (text: string) => string>
+  theme: Record<string, (text: string) => string>,
 ): Text | Container {
   const state = result.details;
   if (!state) {
@@ -40,20 +43,16 @@ export function renderWebSearchResult(
   const icon = statusIcon(status, theme);
   const totalResults = state.results.length;
 
-  const responseTimeInfo = state.responseTime
-    ? ` · ${state.responseTime.toFixed(2)}s`
-    : "";
+  const responseTimeInfo = state.responseTime ? ` · ${state.responseTime.toFixed(2)}s` : "";
 
-  const keysInfo = state.keysUsed && state.keysUsed > 1
-    ? ` · ${state.keysUsed} keys`
-    : "";
+  const keysInfo = state.keysUsed && state.keysUsed > 1 ? ` · ${state.keysUsed} keys` : "";
 
   const header =
     icon +
     " " +
     theme.toolTitle(theme.bold("web_search ")) +
     theme.dim(
-      `${totalResults} result${totalResults === 1 ? "" : "s"}${responseTimeInfo}${keysInfo}`
+      `${totalResults} result${totalResults === 1 ? "" : "s"}${responseTimeInfo}${keysInfo}`,
     );
 
   if (status === "running") {
@@ -116,9 +115,7 @@ function formatResults(state: SearchState): string {
       lines.push(item.content);
       if (item.raw_content) {
         lines.push("\n*Full content excerpt:*");
-        lines.push(
-          "> " + item.raw_content.slice(0, 500).replace(/\n/g, "\n> ")
-        );
+        lines.push("> " + item.raw_content.slice(0, 500).replace(/\n/g, "\n> "));
         if (item.raw_content.length > 500) {
           lines.push("> ...");
         }
