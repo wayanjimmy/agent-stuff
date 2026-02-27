@@ -2,7 +2,7 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-cod
 import { WebSearchParams, type WebSearchParamsType } from "./web-search-params.js";
 import { performSearch, type SearchState } from "./web-search-client.js";
 import { renderWebSearchCall, renderWebSearchResult } from "./web-search-ui.js";
-import { showStatusWidget } from "./web-search-status-ui.js";
+import { showStatusWidget, type KeyDisplay } from "./web-search-status-ui.js";
 import { loadApiKeys, getSharedApiKeyManager } from "./api-key-manager.js";
 
 /** Tool name constant for consistency */
@@ -76,7 +76,7 @@ export default function webSearchExtension(pi: ExtensionAPI) {
   });
 
   pi.registerCommand(COMMAND_NAME, {
-    description: "Show API key status popup",
+    description: "Show API key status popup (press 'r' to refresh)",
     async handler(_args: string, ctx: ExtensionCommandContext) {
       const keys = loadApiKeys();
       const keyManager = getSharedApiKeyManager();
@@ -109,32 +109,49 @@ export default function webSearchExtension(pi: ExtensionAPI) {
         return;
       }
 
-      // Fetch usage data first (fast API call)
-      // This should be quick but we don't want to block indefinitely
-      const fetchTimeout = new Promise<void>((resolve) => setTimeout(resolve, 2000));
-      await Promise.race([keyManager.fetchAllUsage(), fetchTimeout]);
-
-      // Get fresh status after fetch
+      // Get initial status (without usage data)
       const status = keyManager.getKeyStatus();
       const available = keyManager.getAvailableKeyCount();
       const total = keyManager.getTotalKeyCount();
 
-      // Show the status popup overlay with fetched data
-      await showStatusWidget(
-        status.map((k) => ({
-          maskedKey: k.maskedKey,
-          requestsMade: k.requestsMade,
-          rateLimitRemaining: k.rateLimitRemaining,
-          rateLimitTotal: k.rateLimitTotal,
-          inCooldown: k.inCooldown,
-          cooldownRemainingMs: k.cooldownRemainingMs,
-          failureCount: k.failureCount,
-          plan: k.plan,
-        })),
-        available,
-        total,
-        ctx,
-      );
+      // Show the status popup overlay immediately with loading state
+      const keyDisplays: KeyDisplay[] = status.map((k) => ({
+        ...k,
+        isLoading: true,
+      }));
+
+      // Show the widget (non-blocking) and get the update function
+      const { updateKeys, waitForClose } = showStatusWidget(keyDisplays, available, total, ctx, {
+        onRefresh: () => refreshUsage(),
+      });
+
+      // Fetch usage and update widget (works for both success and error)
+      let refreshInFlight = false;
+      const refreshUsage = async () => {
+        if (refreshInFlight) return;
+        refreshInFlight = true;
+        
+        try {
+          const fetchTimeout = new Promise<void>((_, reject) => 
+            setTimeout(() => reject(new Error('Timeout')), 5000)
+          );
+          await Promise.race([keyManager.fetchAllUsage(), fetchTimeout]).catch(() => {});
+          
+          updateKeys(
+            keyManager.getKeyStatus().map((k) => ({
+              ...k,
+              isLoading: false,
+            })),
+          );
+        } finally {
+          refreshInFlight = false;
+        }
+      };
+
+      refreshUsage();
+      
+      // Wait for the widget to close before returning
+      await waitForClose();
     },
   });
 }

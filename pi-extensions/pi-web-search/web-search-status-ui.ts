@@ -107,6 +107,7 @@ function makeCenterRow(innerW: number): (content: string) => string {
 // ---------------------------------------------------------------------------
 
 export interface KeyDisplay {
+  available: boolean;
   maskedKey: string;
   requestsMade: number;
   rateLimitRemaining?: number;
@@ -114,7 +115,8 @@ export interface KeyDisplay {
   inCooldown: boolean;
   cooldownRemainingMs?: number;
   failureCount: number;
-  plan?: string; // Account plan name
+  plan?: string;
+  isLoading?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -122,9 +124,9 @@ export interface KeyDisplay {
 // ---------------------------------------------------------------------------
 
 class StatusOverlay {
-  private keys: KeyDisplay[];
-  private available: number;
-  private total: number;
+  keys: KeyDisplay[];
+  available: number;
+  total: number;
   private done: (value: null) => void;
 
   private cachedWidth?: number;
@@ -194,8 +196,14 @@ class StatusOverlay {
         key.rateLimitTotal !== undefined &&
         key.rateLimitTotal > 0;
       const hasRequestData = key.requestsMade > 0;
+      const isLoading = key.isLoading;
 
-      if (hasRateLimitData) {
+      if (isLoading) {
+        // Loading state - show spinner icon only
+        const barWidth = Math.max(10, innerW - 5);
+        const bar = dim("░".repeat(barWidth));
+        usageLine = `${bar} ⏳`;
+      } else if (hasRateLimitData) {
         // Real rate limit data from API headers
         const used = key.rateLimitTotal - key.rateLimitRemaining;
         const remaining = key.rateLimitRemaining;
@@ -262,7 +270,7 @@ class StatusOverlay {
     lines.push(emptyRow());
     lines.push(divider());
     lines.push(emptyRow());
-    lines.push(centerRow(dim(italic("Press ESC to close"))));
+    lines.push(centerRow(dim(italic("Press ESC to close, R to refresh"))));
     lines.push(dim(`╰${"─".repeat(innerW)}╯`));
 
     this.cachedLines = lines;
@@ -288,20 +296,44 @@ class StatusOverlay {
 // Public API
 // ---------------------------------------------------------------------------
 
-export async function showStatusWidget(
+export interface StatusWidgetCallbacks {
+  onRefresh?: () => void;
+}
+
+export interface StatusWidgetHandle {
+  updateKeys: (newKeys: KeyDisplay[]) => void;
+  waitForClose: () => Promise<void>;
+}
+
+export function showStatusWidget(
   keys: KeyDisplay[],
   available: number,
   total: number,
   ctx: ExtensionCommandContext,
-): Promise<void> {
-  await ctx.ui.custom<null>(
+  callbacks?: StatusWidgetCallbacks,
+): StatusWidgetHandle {
+  // Shared state that both the custom UI and the returned handle can access
+  const state = {
+    keys,
+    available,
+    total,
+    overlay: null as StatusOverlay | null,
+    tui: null as any,
+  };
+
+  // Create the custom UI - store the promise so we can await it later
+  const uiPromise = ctx.ui.custom<null>(
     (tui, _theme, _kb, done) => {
-      const overlay = new StatusOverlay(keys, available, total, done);
+      state.tui = tui;
+      state.overlay = new StatusOverlay(state.keys, state.available, state.total, done);
       return {
-        render: (width: number) => overlay.render(width),
-        invalidate: () => overlay.invalidate(),
+        render: (width: number) => state.overlay!.render(width),
+        invalidate: () => state.overlay!.invalidate(),
         handleInput: (data: string) => {
-          overlay.handleInput(data);
+          if (matchesKey(data, "r") && callbacks?.onRefresh) {
+            callbacks.onRefresh();
+          }
+          state.overlay!.handleInput(data);
           tui.requestRender();
         },
       };
@@ -311,6 +343,20 @@ export async function showStatusWidget(
       overlayOptions: { anchor: "top-center", width: OVERLAY_WIDTH },
     },
   );
+
+  return {
+    updateKeys: (newKeys: KeyDisplay[]) => {
+      state.keys = newKeys;
+      state.available = newKeys.filter((k) => k.available).length;
+      if (state.overlay) {
+        state.overlay.keys = newKeys;
+        state.overlay.available = state.available;
+        state.overlay.invalidate();
+      }
+      state.tui?.requestRender();
+    },
+    waitForClose: () => uiPromise.then(() => {}),
+  };
 }
 
 /**

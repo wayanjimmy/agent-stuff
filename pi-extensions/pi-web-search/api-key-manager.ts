@@ -203,12 +203,16 @@ export class ApiKeyManager {
     }
 
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
       const response = await fetch("https://api.tavily.com/usage", {
         method: "GET",
         headers: {
           Authorization: `Bearer ${key}`,
         },
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         console.log(`[Web Search] Usage fetch failed for key: ${response.status}`);
@@ -230,8 +234,9 @@ export class ApiKeyManager {
       keyState.plan = data.account.current_plan;
 
       return true;
-    } catch (error) {
-      console.log(`[Web Search] Usage fetch error:`, error);
+    } catch {
+      // Silently ignore fetch errors - these are typically network timeouts
+      // The UI will show "No usage data" or cached data instead
       return false;
     }
   }
