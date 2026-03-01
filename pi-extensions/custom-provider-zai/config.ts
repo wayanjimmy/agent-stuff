@@ -1,11 +1,11 @@
 import type { Context, Model, SimpleStreamOptions } from "@mariozechner/pi-ai";
 
-export const ZAI_BASE_URL = "https://api.z.ai/api/coding/paas/v4";
+export const ZAI_BASE_URL_DEFAULT = "https://api.z.ai/api/coding/paas/v4";
 export const DEFAULT_TEMPERATURE = 0.9;
 export const DEFAULT_TOP_P = 0.95;
 export const DEFAULT_CLEAR_THINKING = false;
 
-const API_KEY_ENV_PLACEHOLDER = "ZAI_API_KEY";
+const API_KEY_ENV_PLACEHOLDER = "PI_ZAI_API_KEY";
 
 export interface ZaiRuntimeSettings {
 	temperature: number;
@@ -64,7 +64,7 @@ export interface ZaiProviderConfig {
 }
 
 const GLM_4_7_ZAI_MODEL: Omit<ZaiProviderModelConfig, "baseUrl" | "apiKey"> = {
-	id: "glm-4.7",
+	id: "glm-4.7-oai",
 	name: "GLM 4.7 ZAI",
 	reasoning: true,
 	input: ["text"],
@@ -107,6 +107,18 @@ function parseOptionalString(value: unknown): string | undefined {
 	if (typeof value !== "string") return undefined;
 	const trimmed = value.trim();
 	return trimmed.length > 0 ? trimmed : undefined;
+}
+
+export function resolveZaiBaseUrl(
+	env: Record<string, string | undefined>,
+): string {
+	return parseOptionalString(env.PI_ZAI_BASE_URL) ?? ZAI_BASE_URL_DEFAULT;
+}
+
+export function resolveZaiApiKey(
+	env: Record<string, string | undefined>,
+): string | undefined {
+	return parseOptionalString(env.PI_ZAI_API_KEY);
 }
 
 function firstDefined<T>(...values: Array<T | undefined>): T | undefined {
@@ -159,12 +171,6 @@ export function resolveZaiRuntimeSettings(
 	return { temperature, topP, clearThinking };
 }
 
-function resolveZaiApiKey(
-	env: Record<string, string | undefined>,
-): string | undefined {
-	return parseOptionalString(env.ZAI_API_KEY);
-}
-
 function resolveModels(
 	env: Record<string, string | undefined>,
 ): ZaiProviderModelConfig[] {
@@ -174,7 +180,7 @@ function resolveModels(
 	return [
 		{
 			...GLM_4_7_ZAI_MODEL,
-			baseUrl: ZAI_BASE_URL,
+			baseUrl: resolveZaiBaseUrl(env),
 			apiKey,
 		},
 	];
@@ -230,7 +236,7 @@ export function buildZaiProviderConfig(
 	const apiKey = resolveZaiApiKey(env) ?? API_KEY_ENV_PLACEHOLDER;
 
 	return {
-		baseUrl: ZAI_BASE_URL,
+		baseUrl: resolveZaiBaseUrl(env),
 		apiKey,
 		api: "openai-completions",
 		streamSimple: input.streamSimple,
