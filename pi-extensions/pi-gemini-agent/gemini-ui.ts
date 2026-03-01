@@ -132,7 +132,10 @@ function formatToolCall(call: GeminiToolCall): string {
     call.input && typeof call.input === "object" ? (call.input as Record<string, any>) : undefined;
 
   if (call.name === "read_file" || call.name === "read") {
-    const p = typeof input?.path === "string" ? input.path : "";
+    const p =
+      typeof input?.path === "string" ? input.path :
+      typeof input?.file_path === "string" ? input.file_path :
+      typeof input?.filepath === "string" ? input.filepath : "";
     return `${call.name} ${shorten(p, 100)}`;
   }
 
@@ -147,7 +150,9 @@ function formatToolCall(call: GeminiToolCall): string {
         ? input.path
         : typeof input?.file_path === "string"
           ? input.file_path
-          : "";
+          : typeof input?.filepath === "string"
+            ? input.filepath
+            : "";
     return `${call.name} ${shorten(p, 100)}`;
   }
 

@@ -95,20 +95,38 @@ export class GeminiStreamParser {
     // Handle message events
     if (type === "message") {
       const role = typeof obj.role === "string" ? obj.role : "";
+      const isDelta = obj.delta === true;
 
-      // Assistant message with delta (streaming)
-      if (role === "assistant" && obj.delta === true) {
-        return {
-          kind: "assistant_delta",
-          text: typeof obj.content === "string" ? obj.content : "",
-        };
-      }
+      if (role === "assistant") {
+        let text = "";
+        const toolUse: ToolUseInfo[] = [];
 
-      // Complete assistant message
-      if (role === "assistant" && !obj.delta) {
+        if (typeof obj.content === "string") {
+          text = obj.content;
+        } else if (Array.isArray(obj.content)) {
+          for (const part of obj.content) {
+            if (!part || typeof part !== "object") continue;
+            const p = part as Record<string, unknown>;
+            const pType = typeof p.type === "string" ? p.type : "";
+
+            if (pType === "text" && typeof p.text === "string") {
+              text += p.text;
+            }
+
+            if (pType === "tool_use") {
+              toolUse.push({
+                id: typeof p.tool_id === "string" ? p.tool_id : typeof p.id === "string" ? p.id : `fallback-${Date.now()}-${Math.random()}`,
+                name: typeof p.tool_name === "string" ? p.tool_name : typeof p.name === "string" ? p.name : "",
+                input: coerceToolInput(p),
+              });
+            }
+          }
+        }
+
         return {
-          kind: "assistant_message",
-          text: typeof obj.content === "string" ? obj.content : "",
+          kind: isDelta ? "assistant_delta" : "assistant_message",
+          text,
+          ...(toolUse.length ? { toolUse } : {}),
         };
       }
     }
@@ -120,9 +138,9 @@ export class GeminiStreamParser {
         text: "",
         toolUse: [
           {
-            id: typeof obj.tool_id === "string" ? obj.tool_id : "",
+            id: typeof obj.tool_id === "string" ? obj.tool_id : `fallback-${Date.now()}-${Math.random()}`,
             name: typeof obj.tool_name === "string" ? obj.tool_name : "",
-            input: obj.parameters,
+            input: coerceToolInput(obj),
           },
         ],
       };
@@ -182,4 +200,29 @@ export class GeminiStreamParser {
 
     return null;
   }
+}
+
+function coerceToolInput(obj: Record<string, unknown>): unknown {
+  const candidate = obj.parameters ?? obj.input ?? obj.args ?? obj.arguments;
+
+  if (typeof candidate === "string") {
+    const s = candidate.trim();
+    if (!s) return undefined;
+    if (s.startsWith("{") || s.startsWith("[")) {
+      try {
+        return JSON.parse(s);
+      } catch {
+        return candidate;
+      }
+    }
+    return candidate;
+  }
+
+  if (candidate && typeof candidate === "object") return candidate;
+
+  // Last-resort: tool params may be flattened at top level
+  if (typeof obj.path === "string") return { path: obj.path };
+  if (typeof obj.command === "string") return { command: obj.command };
+
+  return undefined;
 }

@@ -91,6 +91,7 @@ export async function runGeminiAgent(options: GeminiRunnerOptions): Promise<Gemi
     cwd: cwd || process.cwd(),
     stdio: ["ignore", "pipe", "pipe"],
     env: { ...process.env },
+    detached: true,
   });
 
   const parser = new GeminiStreamParser();
@@ -183,12 +184,44 @@ export async function runGeminiAgent(options: GeminiRunnerOptions): Promise<Gemi
 
   return new Promise<GeminiRunState>((resolve) => {
     let killTimer: ReturnType<typeof setTimeout> | null = null;
+    const killGroup = (sig: NodeJS.Signals) => {
+      // Negative PID kills the entire process group (POSIX only)
+      if (process.platform !== "win32" && proc.pid) {
+        try {
+          process.kill(-proc.pid, sig);
+          return;
+        } catch {
+          // Fall through to direct kill
+        }
+      }
+      proc.kill(sig);
+    };
+
     const killProc = () => {
       if (proc.exitCode !== null || proc.signalCode !== null) return;
-      proc.kill("SIGTERM");
+      killGroup("SIGTERM");
       killTimer = setTimeout(() => {
-        if (proc.exitCode === null) proc.kill("SIGKILL");
+        if (proc.exitCode === null) killGroup("SIGKILL");
       }, 2000);
+    };
+
+    let resolved = false;
+    const forceResolve = () => {
+      if (resolved) return;
+      resolved = true;
+      if (updateTimer) {
+        clearTimeout(updateTimer);
+        updateTimer = null;
+      }
+      if (killTimer) {
+        clearTimeout(killTimer);
+        killTimer = null;
+      }
+      if (signal) signal.removeEventListener("abort", onAbort);
+      state.status = "aborted";
+      state.endedAt = Date.now();
+      onUpdate?.({ ...state });
+      resolve(state);
     };
 
     const onAbort = () => {
@@ -196,6 +229,8 @@ export async function runGeminiAgent(options: GeminiRunnerOptions): Promise<Gemi
       state.endedAt = Date.now();
       killProc();
       onUpdate?.({ ...state });
+      // If process doesn't close within 3s after SIGKILL, force-resolve
+      setTimeout(() => forceResolve(), 5000);
     };
 
     if (signal) {
@@ -225,6 +260,9 @@ export async function runGeminiAgent(options: GeminiRunnerOptions): Promise<Gemi
     });
 
     proc.on("close", (code) => {
+      if (resolved) return;
+      resolved = true;
+
       const remaining = parser.flush();
       if (remaining.length > 0) handleEvents(remaining);
 
@@ -262,6 +300,9 @@ export async function runGeminiAgent(options: GeminiRunnerOptions): Promise<Gemi
     });
 
     proc.on("error", (err) => {
+      if (resolved) return;
+      resolved = true;
+
       if (signal) signal.removeEventListener("abort", onAbort);
       state.status = "error";
       state.error = err.message;
