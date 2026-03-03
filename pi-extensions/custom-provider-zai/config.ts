@@ -63,7 +63,7 @@ export interface ZaiProviderConfig {
 	models: ZaiProviderModelConfig[];
 }
 
-const GLM_4_7_ZAI_MODEL: Omit<ZaiProviderModelConfig, "baseUrl" | "apiKey"> = {
+const GLM_47_ZAI_MODEL: Omit<ZaiProviderModelConfig, "baseUrl" | "apiKey"> = {
 	id: "glm-4.7-oai",
 	name: "GLM 4.7 ZAI",
 	reasoning: true,
@@ -76,6 +76,25 @@ const GLM_4_7_ZAI_MODEL: Omit<ZaiProviderModelConfig, "baseUrl" | "apiKey"> = {
 	},
 	contextWindow: 204800,
 	maxTokens: 131072,
+	compat: {
+		supportsDeveloperRole: false,
+		thinkingFormat: "zai",
+	},
+};
+
+const GLM_5_ZAI_MODEL: Omit<ZaiProviderModelConfig, "baseUrl" | "apiKey"> = {
+	id: "glm-5-oai",
+	name: "GLM 5 ZAI",
+	reasoning: true,
+	input: ["text"],
+	cost: {
+		input: 0.15,
+		output: 0.6,
+		cacheRead: 0,
+		cacheWrite: 0,
+	},
+	contextWindow: 200000,
+	maxTokens: 128000,
 	compat: {
 		supportsDeveloperRole: false,
 		thinkingFormat: "zai",
@@ -177,12 +196,11 @@ function resolveModels(
 	const apiKey = resolveZaiApiKey(env);
 	if (!apiKey) return [];
 
+	const baseUrl = resolveZaiBaseUrl(env);
+
 	return [
-		{
-			...GLM_4_7_ZAI_MODEL,
-			baseUrl: resolveZaiBaseUrl(env),
-			apiKey,
-		},
+		{ ...GLM_47_ZAI_MODEL, baseUrl, apiKey },
+		{ ...GLM_5_ZAI_MODEL, baseUrl, apiKey },
 	];
 }
 
