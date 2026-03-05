@@ -160,15 +160,24 @@ function formatToolCall(call: GeminiToolCall): string {
   if (input && Object.keys(input).length > 0) {
     const inputSummary = Object.entries(input)
       .slice(0, 2)
-      .map(([k, v]) => {
-        const strVal = String(v);
-        return `${k}=${shorten(strVal.length > 30 ? strVal.slice(0, 30) : strVal, 20)}`;
-      })
+      .map(([k, v]) => `${k}=${shorten(formatArgValue(v), 30)}`)
       .join(" ");
     return `${call.name} ${inputSummary}${Object.keys(input).length > 2 ? "…" : ""}`;
   }
 
   return call.name;
+}
+
+function formatArgValue(v: unknown, maxLen = 60): string {
+  if (v == null) return "";
+  if (typeof v === "string") return shorten(v, maxLen);
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  if (Array.isArray(v)) return `${v.length} item${v.length === 1 ? "" : "s"}`;
+  if (typeof v === "object") {
+    const keys = Object.keys(v as Record<string, unknown>);
+    return `${keys.length} field${keys.length === 1 ? "" : "s"}`;
+  }
+  return shorten(String(v), maxLen);
 }
 
 function shorten(text: string, max: number): string {
