@@ -1,4 +1,4 @@
-import type { Context, Model, SimpleStreamOptions } from "@mariozechner/pi-ai";
+import type { AssistantMessageEventStream, Context, Model, SimpleStreamOptions } from "@mariozechner/pi-ai";
 
 export const ZAI_BASE_URL_DEFAULT = "https://api.z.ai/api/coding/paas/v4";
 export const DEFAULT_TEMPERATURE = 0.9;
