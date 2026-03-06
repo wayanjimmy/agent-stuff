@@ -1,6 +1,6 @@
 {
-  "name": "@pi-extensions/double-esc-clear",
-  "version": "1.0.0",
+  "name": "@pi-extensions/custom-provider-zai",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "dependencies": {
