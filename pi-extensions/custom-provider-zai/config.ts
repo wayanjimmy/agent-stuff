@@ -83,7 +83,7 @@ const GLM_47_ZAI_MODEL: Omit<ZaiProviderModelConfig, "baseUrl" | "apiKey"> = {
 };
 
 const GLM_5_ZAI_MODEL: Omit<ZaiProviderModelConfig, "baseUrl" | "apiKey"> = {
-	id: "glm-5-oai",
+	id: "glm-5",
 	name: "GLM 5 ZAI",
 	reasoning: true,
 	input: ["text"],
