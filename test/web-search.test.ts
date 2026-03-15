@@ -8,7 +8,7 @@ import {
 	type SearchState,
 	type TavilyResult,
 	type SearchDeps,
-} from "./web-search";
+} from "../pi-extensions/web-search";
 
 // ---------------------------------------------------------------------------
 // Helpers
