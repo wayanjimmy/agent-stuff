@@ -27,6 +27,7 @@ const MODEL_COLORS: Record<string, string> = {
   "glm-5": ANSI_BLUE,
   "glm-4.7": ANSI_BLUE,
   "dashscope-glm-4.7": ANSI_BLUE,
+  "gpt-5.3-codex": ANSI_BLUE,
   "qwen3.5-plus": ANSI_GREEN,
   "kimi-k2.5": ANSI_GREEN,
   "minimax-m2.5": ANSI_GREEN,
