@@ -45,6 +45,21 @@ function stripAnsi(text: string): string {
   return text.replace(/\x1b\[[0-9;]*m/g, "");
 }
 
+function stripFrontmatter(text: string): string {
+  const match = text.match(/^---\n[\s\S]*?\n---\n/);
+  return match ? text.slice(match[0].length) : text;
+}
+
+function stripSystemBlocks(text: string): string {
+  return text
+    .replace(/<INSTRUCTIONS>[\s\S]*?<\/INSTRUCTIONS>/g, "[system instructions omitted]")
+    .replace(/<environment_context>[\s\S]*?<\/environment_context>/g, "");
+}
+
+function cleanOutput(text: string): string {
+  return stripSystemBlocks(stripFrontmatter(text)).replace(/\n{3,}/g, "\n\n").trim();
+}
+
 function truncate(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
   return text.slice(0, maxChars - TRUNCATION_NOTE.length) + TRUNCATION_NOTE;
@@ -60,7 +75,7 @@ async function execXurl(
     const err = stripAnsi(result.stderr || result.stdout || "Unknown error");
     return { ok: false, output: err.trim() || `xurl exited with code ${result.code}` };
   }
-  return { ok: true, output: stripAnsi(result.stdout) };
+  return { ok: true, output: cleanOutput(stripAnsi(result.stdout)) };
 }
 
 // ---------------------------------------------------------------------------
