@@ -48,7 +48,7 @@ export default function (pi: ExtensionAPI) {
   let ticker: ReturnType<typeof setInterval> | null = null;
   let pendingClear = false;
 
-  const CLEAR_TIMEOUT_MS = 2000;
+  const CLEAR_TIMEOUT_MS = 1000;
 
   class DoubleEscEditor extends CustomEditor {
     private clearTimeout?: ReturnType<typeof setTimeout>;
