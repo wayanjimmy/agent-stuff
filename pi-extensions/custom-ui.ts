@@ -5,6 +5,7 @@
  * - Flower spinner animation in title bar and footer during streaming
  * - Stats widget above editor (context %, cost, model with color coding, skills)
  * - Clean single-line footer (status + path/branch)
+ * - Double Esc to clear prompt input (hint shown in footer)
  *
  * Usage:
  *   pi -e pi-extensions/custom-ui.ts
@@ -45,9 +46,54 @@ function getBaseTitle(pi: ExtensionAPI): string {
 export default function (pi: ExtensionAPI) {
 	let frameIndex = 0;
 	let ticker: ReturnType<typeof setInterval> | null = null;
+	let pendingClear = false;
+
+	const CLEAR_TIMEOUT_MS = 2000;
+
+	class DoubleEscEditor extends CustomEditor {
+		private clearTimeout?: ReturnType<typeof setTimeout>;
+
+		handleInput(data: string): void {
+			if (matchesKey(data, "escape")) {
+				if (pendingClear) {
+					this.setText("");
+					pendingClear = false;
+					clearTimeout(this.clearTimeout);
+					this.tui.requestRender();
+					return;
+				}
+
+				if (this.getText().length > 0) {
+					pendingClear = true;
+					this.clearTimeout = setTimeout(() => {
+						pendingClear = false;
+						this.tui.requestRender();
+					}, CLEAR_TIMEOUT_MS);
+					return;
+				}
+			}
+
+			if (pendingClear) {
+				pendingClear = false;
+				clearTimeout(this.clearTimeout);
+				this.tui.requestRender();
+			}
+
+			super.handleInput(data);
+		}
+
+		dispose(): void {
+			clearTimeout(this.clearTimeout);
+			super.dispose?.();
+		}
+	}
 
 	pi.on("session_start", async (_event, ctx) => {
 		const skillCount = pi.getCommands().filter((c: any) => c.source === "skill").length;
+
+		ctx.ui.setEditorComponent(
+			(tui, theme, keybindings) => new DoubleEscEditor(tui, theme, keybindings)
+		);
 
 		// Stats widget above the editor
 		ctx.ui.setWidget("stats-rule", (tui, theme) => {
@@ -123,9 +169,11 @@ export default function (pi: ExtensionAPI) {
 					const streaming = !ctx.isIdle();
 					const dim = (s: string) => theme.fg("dim", s);
 
-					// Status line: ✓ Ready / ✻ Streaming Response  ~/path (branch)
+					// Status line: ✓ Ready / ✻ Streaming Response [Esc again to clear]  ~/path (branch)
 					let statusLeft: string;
-					if (streaming) {
+					if (pendingClear) {
+						statusLeft = `${ANSI_BLUE}Esc${ANSI_RESET} again to clear`;
+					} else if (streaming) {
 						const frame = FRAMES[frameIndex % FRAMES.length];
 						statusLeft = `${theme.fg("accent", frame)} Streaming Response`;
 					} else {
