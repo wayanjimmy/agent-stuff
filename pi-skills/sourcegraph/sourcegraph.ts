@@ -220,8 +220,8 @@ async function main() {
       console.error("Error: provide JSON on stdin or use --query flag");
       console.error("");
       console.error("Usage:");
-      console.error("  ./sourcegraph.ts --query \"<search query>\"");
-      console.error("  echo '{\"query\":\"<search query>\"}' | ./sourcegraph.ts");
+      console.error('  ./sourcegraph.ts --query "<search query>"');
+      console.error('  echo \'{"query":"<search query>"}\' | ./sourcegraph.ts');
       Deno.exit(1);
     }
   }
@@ -237,12 +237,7 @@ async function main() {
   const timeoutMs = timeout * 1000;
 
   try {
-    const result = await searchSourcegraph(
-      params.query.trim(),
-      count,
-      contextWindow,
-      timeoutMs,
-    );
+    const result = await searchSourcegraph(params.query.trim(), count, contextWindow, timeoutMs);
     console.log(formatResult(result));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

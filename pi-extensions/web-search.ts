@@ -1,3 +1,13 @@
+/**
+ * Web Search Extension
+ *
+ * Adds a `web_search` tool powered by Tavily's search API.
+ * Requires TAVILY_API_KEY environment variable.
+ *
+ * Usage:
+ *   pi -e pi-extensions/web-search.ts
+ */
+
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type, type Static } from "@sinclair/typebox";
 import { getMarkdownTheme } from "@mariozechner/pi-coding-agent";
@@ -352,18 +362,26 @@ function renderWebSearchResult(
 }
 
 // ---------------------------------------------------------------------------
-// Tool factory
+// Exports for testing
 // ---------------------------------------------------------------------------
 
-const TOOL_NAME = "web_search";
+export {
+	performSearch,
+	formatForLLM,
+	resultsToSections,
+	formatSectionsCollapsed,
+	throwIfAborted,
+};
 
-interface WebSearchToolDeps {
-  searchDeps: SearchDeps;
-}
+export type { SearchState, TavilyResult, ResultSection, SearchDeps };
 
-function createWebSearchTool(deps: WebSearchToolDeps) {
-  return {
-    name: TOOL_NAME,
+// ---------------------------------------------------------------------------
+// Extension entry point
+// ---------------------------------------------------------------------------
+
+export default function webSearchExtension(pi: ExtensionAPI) {
+  pi.registerTool({
+    name: "web_search",
     label: "Web Search",
     description:
       "Search the web for current information using Tavily's search API.\n" +
@@ -401,7 +419,7 @@ function createWebSearchTool(deps: WebSearchToolDeps) {
         details: { status: "running", query: objective, results: [] },
       });
 
-      const result = await performSearch(params, signal, deps.searchDeps);
+      const result = await performSearch(params, signal, DEFAULT_DEPS);
       const text = formatForLLM(result);
 
       return {
@@ -422,36 +440,5 @@ function createWebSearchTool(deps: WebSearchToolDeps) {
     ) {
       return renderWebSearchResult(result, opts, theme);
     },
-  };
+  });
 }
-
-// ---------------------------------------------------------------------------
-// Extension entry point
-// ---------------------------------------------------------------------------
-
-export default function webSearchExtension(pi: ExtensionAPI) {
-  pi.registerTool(createWebSearchTool({ searchDeps: DEFAULT_DEPS }));
-}
-
-// ---------------------------------------------------------------------------
-// Exports for testing
-// ---------------------------------------------------------------------------
-
-export {
-  createWebSearchTool,
-  performSearch,
-  formatForLLM,
-  resultsToSections,
-  formatSectionsCollapsed,
-  throwIfAborted,
-  WebSearchParams,
-};
-
-export type {
-  WebSearchParamsType,
-  SearchState,
-  TavilyResult,
-  ResultSection,
-  SearchDeps,
-  WebSearchToolDeps,
-};

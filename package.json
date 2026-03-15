@@ -7,11 +7,9 @@
   ],
   "license": "ISC",
   "scripts": {
-    "fmt": "oxfmt",
-    "fmt:check": "oxfmt --check"
-  },
-  "devDependencies": {
-    "oxfmt": "^0.35.0"
+    "fmt": "vp fmt",
+    "fmt:check": "vp fmt --check",
+    "test": "vp test"
   },
   "peerDependencies": {
     "@mariozechner/pi-ai": "*",

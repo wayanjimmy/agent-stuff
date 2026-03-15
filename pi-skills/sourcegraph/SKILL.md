@@ -22,26 +22,26 @@ echo '{"query":"lang:go rate limiting","count":10}' | ./sourcegraph.ts
 
 ## Parameters
 
-| Parameter | Default | Range | Description |
-|-----------|---------|-------|-------------|
-| `--query` \| `-q` | (required) | — | Sourcegraph search query |
-| `--count` \| `-c` | 10 | 1–20 | Maximum number of results to return |
-| `--context-window` | 3 | 0–10 | Number of surrounding lines per match |
-| `--timeout` \| `-t` | 30 | 1–120 | Timeout in seconds |
+| Parameter           | Default    | Range | Description                           |
+| ------------------- | ---------- | ----- | ------------------------------------- |
+| `--query` \| `-q`   | (required) | —     | Sourcegraph search query              |
+| `--count` \| `-c`   | 10         | 1–20  | Maximum number of results to return   |
+| `--context-window`  | 3          | 0–10  | Number of surrounding lines per match |
+| `--timeout` \| `-t` | 30         | 1–120 | Timeout in seconds                    |
 
 ## Query Syntax
 
 ### Filters
 
-| Filter | Example | Notes |
-|--------|---------|-------|
-| **Repository** | `repo:^github\.com/org/repo$` | Regex anchor for exact match |
-| **Exclude repo** | `-repo:fork` | Exclude matching repos |
-| **File** | `file:\.ts$`, `file:internal/` | Path regex |
-| **Exclude file** | `-file:test`, `-file:_test\.go$` | Exclude matching files |
-| **Language** | `lang:typescript`, `lang:go` | Language filter |
-| **Content** | `content:"exact phrase"` | Literal match |
-| **Case** | `case:yes` | Case-sensitive |
+| Filter           | Example                          | Notes                        |
+| ---------------- | -------------------------------- | ---------------------------- |
+| **Repository**   | `repo:^github\.com/org/repo$`    | Regex anchor for exact match |
+| **Exclude repo** | `-repo:fork`                     | Exclude matching repos       |
+| **File**         | `file:\.ts$`, `file:internal/`   | Path regex                   |
+| **Exclude file** | `-file:test`, `-file:_test\.go$` | Exclude matching files       |
+| **Language**     | `lang:typescript`, `lang:go`     | Language filter              |
+| **Content**      | `content:"exact phrase"`         | Literal match                |
+| **Case**         | `case:yes`                       | Case-sensitive               |
 
 ### Boolean Operators
 
@@ -159,12 +159,12 @@ echo '{"query":"lang:go rate limiting","count":10}' | ./sourcegraph.ts
 
 The `--context-window` parameter controls how many surrounding lines to show per match:
 
-| Value | Use Case |
-|-------|----------|
-| 0 | Show only the matching line (minimal context) |
-| 1-2 | Quick preview (may miss important context) |
-| 3-5 | **Sweet spot** - enough context to understand patterns |
-| 6-10 | Deep dive (may include too much noise) |
+| Value | Use Case                                               |
+| ----- | ------------------------------------------------------ |
+| 0     | Show only the matching line (minimal context)          |
+| 1-2   | Quick preview (may miss important context)             |
+| 3-5   | **Sweet spot** - enough context to understand patterns |
+| 6-10  | Deep dive (may include too much noise)                 |
 
 ```bash
 # Default: 3 lines on each side of match
@@ -186,6 +186,7 @@ The `--context-window` parameter controls how many surrounding lines to show per
 **Solutions:**
 
 1. **Simplify the pattern**
+
    ```bash
    # Before (times out)
    ./sourcegraph.ts --query "sq.(Select|Insert|Update|Delete) lang:go"
@@ -195,6 +196,7 @@ The `--context-window` parameter controls how many surrounding lines to show per
    ```
 
 2. **Add more filters**
+
    ```bash
    # Narrow by repository
    ./sourcegraph.ts --query "sq.Select lang:go repo:^github\.com/org/repo$"
@@ -204,6 +206,7 @@ The `--context-window` parameter controls how many surrounding lines to show per
    ```
 
 3. **Reduce count**
+
    ```bash
    ./sourcegraph.ts --query "sq.Select lang:go" --count 5
    ```
@@ -218,6 +221,7 @@ The `--context-window` parameter controls how many surrounding lines to show per
 **Possible causes:**
 
 1. **Query too specific** - Try broader patterns
+
    ```bash
    # Too specific
    ./sourcegraph.ts --query "squirrel.SelectExactly lang:go"
@@ -227,6 +231,7 @@ The `--context-window` parameter controls how many surrounding lines to show per
    ```
 
 2. **Wrong language filter** - Verify language name
+
    ```bash
    # Correct: lang:typescript, lang:go, lang:python
    ./sourcegraph.ts --query "useState lang:typescript"
@@ -243,11 +248,13 @@ The `--context-window` parameter controls how many surrounding lines to show per
 The script uses **fetch with curl fallback** for reliability:
 
 1. **Check internet connection**
+
    ```bash
    curl -I https://sourcegraph.com
    ```
 
 2. **Try with increased timeout**
+
    ```bash
    ./sourcegraph.ts --query "sq.Select lang:go" --timeout 60
    ```
@@ -287,6 +294,7 @@ Found 25 matches in 8 files (450ms)
 ```
 
 **Use the Sourcegraph links** to:
+
 - View full file context
 - Explore related files
 - Check repository documentation
@@ -381,6 +389,7 @@ EOF
 ## Reference Materials
 
 See [QUERY_REFERENCE.md](QUERY_REFERENCE.md) for:
+
 - Complete filter syntax
 - Boolean operator examples
 - Pattern type options (keyword, literal, regexp, structural)
