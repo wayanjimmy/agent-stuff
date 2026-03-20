@@ -124,7 +124,8 @@ export default function (pi: ExtensionAPI) {
           const model = ctx.model?.id?.replace(/^.*\//, "") ?? "";
           const infoRightPlain = skillCount > 0 ? `${model} · ${skillCount} skills` : model;
           const fillLen = Math.max(1, width - infoLeft.length - infoRightPlain.length);
-          const modelColor = MODEL_COLORS[model];
+          const modelColorKey = Object.keys(MODEL_COLORS).find((k) => model.includes(k));
+          const modelColor = modelColorKey ? MODEL_COLORS[modelColorKey] : undefined;
           const coloredModel = modelColor ? `${modelColor}${model}${ANSI_RESET}` : dim(model);
           const infoRight =
             skillCount > 0 ? coloredModel + dim(` · ${skillCount} skills`) : coloredModel;
