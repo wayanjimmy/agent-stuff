@@ -2,7 +2,7 @@
  * Custom UI Extension
  *
  * Customizes pi's TUI with:
- * - Flower spinner animation in title bar and footer during streaming
+ * - Wave spinner animation in title bar and footer while waiting/streaming
  * - Stats widget above editor (context %, cost, model with color coding, skills)
  * - Clean single-line footer (status + path/branch)
  * - Double Esc to clear prompt input (hint shown in footer)
@@ -16,7 +16,7 @@ import type { AssistantMessage } from "@mariozechner/pi-ai";
 import { CustomEditor, type ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { matchesKey, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 
-const FRAMES = ["·", "✻", "✽", "✶", "✳", "✢"];
+const WAVE_FRAMES = ["∼", "≈", "≋", "≈"];
 
 const ANSI_BLUE = "\x1b[34m";
 const ANSI_GREEN = "\x1b[32m";
@@ -48,6 +48,7 @@ export default function (pi: ExtensionAPI) {
   let frameIndex = 0;
   let ticker: ReturnType<typeof setInterval> | null = null;
   let pendingClear = false;
+  let responsePhase: "idle" | "waiting" | "streaming" = "idle";
 
   const CLEAR_TIMEOUT_MS = 1000;
 
@@ -89,7 +90,22 @@ export default function (pi: ExtensionAPI) {
     }
   }
 
+  pi.on("agent_start", async () => {
+    responsePhase = "waiting";
+  });
+
+  pi.on("message_update", async (event) => {
+    if ((event as any).message?.role === "assistant" && responsePhase !== "streaming") {
+      responsePhase = "streaming";
+    }
+  });
+
+  pi.on("turn_end", async (_event, ctx) => {
+    responsePhase = ctx.isIdle() ? "idle" : "waiting";
+  });
+
   pi.on("session_start", async (_event, ctx) => {
+    responsePhase = "idle";
     const skillCount = pi.getCommands().filter((c: any) => c.source === "skill").length;
 
     ctx.ui.setEditorComponent(
@@ -151,13 +167,13 @@ export default function (pi: ExtensionAPI) {
 
       ticker = setInterval(() => {
         if (!ctx.isIdle()) {
-          frameIndex++;
+          frameIndex = (frameIndex + 1) % WAVE_FRAMES.length;
           // Title bar animation
-          const frame = FRAMES[frameIndex % FRAMES.length];
+          const frame = WAVE_FRAMES[frameIndex];
           ctx.ui.setTitle(`${frame} ${getBaseTitle(pi)}`);
           tui.requestRender();
         }
-      }, 150);
+      }, 120);
 
       return {
         dispose() {
@@ -169,16 +185,17 @@ export default function (pi: ExtensionAPI) {
         },
         invalidate() {},
         render(width: number): string[] {
-          const streaming = !ctx.isIdle();
+          const busy = !ctx.isIdle();
           const dim = (s: string) => theme.fg("dim", s);
 
-          // Status line: ✓ Ready / ✻ Streaming Response [Esc again to clear]  ~/path (branch)
+          // Status line: ✓ Ready / ~ Waiting for Response / ~~ Streaming Response [Esc again to clear]
           let statusLeft: string;
           if (pendingClear) {
             statusLeft = `${ANSI_BLUE}Esc${ANSI_RESET} again to clear`;
-          } else if (streaming) {
-            const frame = FRAMES[frameIndex % FRAMES.length];
-            statusLeft = `${theme.fg("accent", frame)} Streaming Response`;
+          } else if (busy) {
+            const label = responsePhase === "streaming" ? "Streaming Response" : "Waiting for Response";
+            const wave = WAVE_FRAMES[frameIndex];
+            statusLeft = `${theme.fg("accent", wave)} ${label}`;
           } else {
             statusLeft = `${theme.fg("success", "✓")} Ready`;
           }
@@ -197,10 +214,12 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("agent_end", async (_event, ctx) => {
+    responsePhase = "idle";
     ctx.ui.setTitle(getBaseTitle(pi));
   });
 
   pi.on("session_shutdown", async (_event, ctx) => {
+    responsePhase = "idle";
     ctx.ui.setTitle(getBaseTitle(pi));
   });
 }
