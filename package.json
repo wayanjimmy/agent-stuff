@@ -5,7 +5,7 @@
   "keywords": [
     "pi-package"
   ],
-  "license": "ISC",
+  "license": "MIT",
   "scripts": {
     "fmt": "vp fmt",
     "fmt:check": "vp fmt --check",
