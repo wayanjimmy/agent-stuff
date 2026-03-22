@@ -46,8 +46,18 @@ function stripAnsi(text: string): string {
 }
 
 function stripFrontmatter(text: string): string {
-  const match = text.match(/^---\n[\s\S]*?\n---\n/);
-  return match ? text.slice(match[0].length) : text;
+  // xurl output can vary slightly across versions (CRLF, leading BOM/whitespace).
+  // Normalize and strip YAML frontmatter defensively.
+  const normalized = text.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
+
+  const trimmedStart = normalized.trimStart();
+  if (!trimmedStart.startsWith("---\n")) return normalized;
+
+  const leadingWsLen = normalized.length - trimmedStart.length;
+  const end = trimmedStart.indexOf("\n---\n", 4);
+  if (end === -1) return normalized;
+
+  return normalized.slice(leadingWsLen + end + "\n---\n".length);
 }
 
 function stripSystemBlocks(text: string): string {
@@ -56,8 +66,16 @@ function stripSystemBlocks(text: string): string {
     .replace(/<environment_context>[\s\S]*?<\/environment_context>/g, "");
 }
 
+function extractThreadBody(text: string): string {
+  const marker = text.match(/^# (Thread|Subagent Thread)\s*$/m);
+  if (!marker || marker.index == null) return text;
+  return text.slice(marker.index);
+}
+
 function cleanOutput(text: string): string {
-  return stripSystemBlocks(stripFrontmatter(text)).replace(/\n{3,}/g, "\n\n").trim();
+  const withoutFrontmatter = stripFrontmatter(text);
+  const threadBody = extractThreadBody(withoutFrontmatter);
+  return stripSystemBlocks(threadBody).replace(/\n{3,}/g, "\n\n").trim();
 }
 
 function truncate(text: string, maxChars: number): string {
