@@ -138,8 +138,6 @@ export default function (pi: ExtensionAPI) {
           }
 
           const model = ctx.model?.id?.replace(/^.*\//, "") ?? "";
-          const infoRightPlain = skillCount > 0 ? `${model} · ${skillCount} skills` : model;
-          const fillLen = Math.max(1, width - infoLeft.length - infoRightPlain.length);
           const modelColorKey = Object.keys(MODEL_COLORS).find((k) => model.includes(k));
           const modelColor = modelColorKey ? MODEL_COLORS[modelColorKey] : undefined;
           const coloredModel = modelColor ? `${modelColor}${model}${ANSI_RESET}` : dim(model);
@@ -157,7 +155,20 @@ export default function (pi: ExtensionAPI) {
             coloredLeft = dim(infoLeft);
           }
 
-          return [coloredLeft + " ".repeat(fillLen) + dim(infoRight)];
+          const leftWidth = visibleWidth(coloredLeft);
+          const rightWidth = visibleWidth(infoRight);
+
+          if (leftWidth + 1 + rightWidth <= width) {
+            const gap = width - leftWidth - rightWidth;
+            return [coloredLeft + " ".repeat(gap) + infoRight];
+          }
+
+          const rightBudget = Math.max(0, Math.min(rightWidth, width - 1));
+          const rightPart = truncateToWidth(infoRight, rightBudget);
+          const leftBudget = Math.max(0, width - visibleWidth(rightPart) - 1);
+          const leftPart = truncateToWidth(coloredLeft, leftBudget);
+
+          return [truncateToWidth(`${leftPart} ${rightPart}`, width)];
         },
       };
     });
