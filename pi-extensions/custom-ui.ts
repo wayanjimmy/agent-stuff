@@ -50,6 +50,10 @@ export default function (pi: ExtensionAPI) {
   let pendingClear = false;
   let responsePhase: "idle" | "waiting" | "streaming" = "idle";
 
+  let geminiAcpActive = false;
+  let geminiAcpPhase: "idle" | "waiting" | "streaming" = "idle";
+  let activeTui: any | null = null;
+
   const CLEAR_TIMEOUT_MS = 1000;
 
   class DoubleEscEditor extends CustomEditor {
@@ -105,6 +109,15 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("session_start", async (_event, ctx) => {
+    const onGeminiAcpUiState = (payload: any) => {
+      const phase = payload?.phase as "idle" | "waiting" | "streaming" | undefined;
+      if (!phase) return;
+      geminiAcpPhase = phase;
+      geminiAcpActive = phase !== "idle";
+      activeTui?.requestRender?.();
+    };
+
+    const offGeminiAcpUiState = pi.events.on("gemini-acp:ui-state", onGeminiAcpUiState);
     responsePhase = "idle";
     const skillCount = pi.getCommands().filter((c: any) => c.source === "skill").length;
 
@@ -174,10 +187,11 @@ export default function (pi: ExtensionAPI) {
     });
 
     ctx.ui.setFooter((tui, theme, footerData) => {
+      activeTui = tui;
       const unsub = footerData.onBranchChange(() => tui.requestRender());
 
       ticker = setInterval(() => {
-        if (!ctx.isIdle()) {
+        if (!ctx.isIdle() || geminiAcpActive) {
           frameIndex = (frameIndex + 1) % WAVE_FRAMES.length;
           // Title bar animation
           const frame = WAVE_FRAMES[frameIndex];
@@ -189,6 +203,10 @@ export default function (pi: ExtensionAPI) {
       return {
         dispose() {
           unsub();
+          offGeminiAcpUiState?.();
+          geminiAcpActive = false;
+          geminiAcpPhase = "idle";
+          activeTui = null;
           if (ticker) {
             clearInterval(ticker);
             ticker = null;
@@ -196,7 +214,7 @@ export default function (pi: ExtensionAPI) {
         },
         invalidate() {},
         render(width: number): string[] {
-          const busy = !ctx.isIdle();
+          const busy = !ctx.isIdle() || geminiAcpActive;
           const dim = (s: string) => theme.fg("dim", s);
 
           // Status line: ✓ Ready / ~ Waiting for Response / ~~ Streaming Response [Esc again to clear]
@@ -204,7 +222,8 @@ export default function (pi: ExtensionAPI) {
           if (pendingClear) {
             statusLeft = `${ANSI_BLUE}Esc${ANSI_RESET} again to clear`;
           } else if (busy) {
-            const label = responsePhase === "streaming" ? "Streaming Response" : "Waiting for Response";
+            const activePhase = geminiAcpActive ? geminiAcpPhase : responsePhase;
+            const label = activePhase === "streaming" ? "Streaming Response" : "Waiting for Response";
             const wave = WAVE_FRAMES[frameIndex];
             statusLeft = `${theme.fg("accent", wave)} ${label}`;
           } else {
