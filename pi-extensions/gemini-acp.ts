@@ -445,6 +445,11 @@ function extractModelFromPromptResult(result: { _meta?: any } | undefined): stri
   return typeof model === "string" ? model : undefined;
 }
 
+// Match the same wave animation used by pi-extensions/custom-ui.ts footer.
+function getLoadingFrames(): string[] {
+  return ["∼", "≈", "≋", "≈"];
+}
+
 export default function geminiAcpExtension(pi: ExtensionAPI) {
   const client = new AcpClient(pi);
   let state: GeminiState = { sessions: {} };
@@ -510,15 +515,15 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
     const thoughtPreview = (live.thought || "").replace(/\s+/g, " ").trim();
     const events = trimLines(live.events, 3);
 
-    const phaseAnim = ["~", "~~", "~~~"];
-    const wave = phaseAnim[Math.floor(Date.now() / 200) % phaseAnim.length];
+    const loadingFrames = getLoadingFrames();
+    const spinner = loadingFrames[Math.floor(Date.now() / 120) % loadingFrames.length];
 
     const phaseLabel =
-      live.phase === "running" ? `${wave} running` : live.phase === "error" ? "✗ error" : "✓ completed";
+      live.phase === "running" ? `${spinner} running` : live.phase === "error" ? "✗ error" : "✓ completed";
 
     const status =
       live.phase === "running"
-        ? `${wave} Gemini ACP running • ${elapsed}s • session ${live.sessionId}`
+        ? `${spinner} Gemini ACP running • ${elapsed}s • session ${live.sessionId}`
         : live.phase === "error"
           ? `✗ Gemini ACP error • ${elapsed}s • session ${live.sessionId}`
           : `✓ Gemini ACP done • ${elapsed}s • session ${live.sessionId}`;
