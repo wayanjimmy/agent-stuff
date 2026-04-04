@@ -184,7 +184,7 @@ export default function (pi: ExtensionAPI) {
           ctx.ui.setTitle(`${frame} ${getBaseTitle(pi)}`);
           tui.requestRender();
         }
-      }, 120);
+      }, 200);
 
       return {
         dispose() {
