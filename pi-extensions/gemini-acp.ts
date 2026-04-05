@@ -674,7 +674,7 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
           {
             customType: "gemini-acp",
             content: `### Gemini ACP Status\n\n${status}${stderr ? `\n\n### stderr (tail)\n\n\`\`\`\n${stderr}\n\`\`\`` : ""}`,
-            display: "all",
+            display: true,
           },
           { triggerTurn: false },
         );
@@ -721,7 +721,7 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
           {
             customType: "gemini-acp",
             content: `### Gemini Sessions\n\n${sessions || "(none)"}`,
-            display: "all",
+            display: true,
           },
           { triggerTurn: false },
         );
@@ -841,7 +841,7 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
           {
             customType: "gemini-acp",
             content,
-            display: "all",
+            display: true,
             details: {
               sessionId,
               prompt: promptText,
