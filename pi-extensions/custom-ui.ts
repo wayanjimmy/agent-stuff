@@ -270,20 +270,33 @@ export default function (pi: ExtensionAPI) {
       activeTui = tui;
       const unsub = footerData.onBranchChange(() => tui.requestRender());
 
+      let wasAnimating = false;
       ticker = setInterval(() => {
-        if (!ctx.isIdle() || geminiAcpActive) {
-          frameIndex = (frameIndex + 1) % WAVE_FRAMES.length;
+        const busy = !ctx.isIdle() || geminiAcpActive;
+        if (busy) {
+          wasAnimating = true;
+          frameIndex = Math.floor(Date.now() / 120) % WAVE_FRAMES.length;
           // Title bar animation
           const frame = WAVE_FRAMES[frameIndex];
           ctx.ui.setTitle(`${frame} ${getBaseTitle(pi)}`);
           tui.requestRender();
+        } else if (wasAnimating) {
+          wasAnimating = false;
+          ctx.ui.setTitle(getBaseTitle(pi));
+          tui.requestRender();
         }
-      }, 120);
+      }, 60);
 
       return {
         dispose() {
           unsub();
-          offGeminiAcpUiState?.();
+          if (typeof offGeminiAcpUiState === "function") {
+            offGeminiAcpUiState();
+          } else if (pi.events && typeof pi.events.off === "function") {
+            pi.events.off("gemini-acp:ui-state", onGeminiAcpUiState);
+          } else if (pi.events && typeof pi.events.removeListener === "function") {
+            pi.events.removeListener("gemini-acp:ui-state", onGeminiAcpUiState);
+          }
           clearPendingAction(false);
           geminiAcpActive = false;
           geminiAcpPhase = "idle";
