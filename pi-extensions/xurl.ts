@@ -12,7 +12,7 @@
  *   pi -e pi-extensions/xurl.ts
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, AgentToolUpdateCallback } from "@mariozechner/pi-coding-agent";
 import { Type, type Static } from "@sinclair/typebox";
 
 // ---------------------------------------------------------------------------
@@ -22,6 +22,12 @@ import { Type, type Static } from "@sinclair/typebox";
 const KNOWN_PROVIDERS = ["codex", "claude", "gemini", "amp", "pi", "opencode"];
 const DEFAULT_MAX_CHARS = 12_000;
 const TRUNCATION_NOTE = "\n\n[Thread truncated...]";
+
+interface XurlDetails {
+  uri: string;
+  success: boolean;
+  charsReturned?: number;
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -130,7 +136,7 @@ export default function xurlExtension(pi: ExtensionAPI) {
       const target = args.trim();
       if (!target) {
         pi.sendMessage(
-          { customType: "xurl", content: "Usage: /xurl <provider/thread-id>", display: "all" },
+          { customType: "xurl", content: "Usage: /xurl <provider/thread-id>", display: true },
           { triggerTurn: false },
         );
         return;
@@ -141,7 +147,7 @@ export default function xurlExtension(pi: ExtensionAPI) {
 
       if (!ok) {
         pi.sendMessage(
-          { customType: "xurl", content: `**xurl error:** ${output}`, display: "all" },
+          { customType: "xurl", content: `**xurl error:** ${output}`, display: true },
           { triggerTurn: false },
         );
         return;
@@ -149,7 +155,7 @@ export default function xurlExtension(pi: ExtensionAPI) {
 
       const content = truncate(output, DEFAULT_MAX_CHARS);
       pi.sendMessage(
-        { customType: "xurl", content: `**Thread: ${target}**\n\n${content}`, display: "all" },
+        { customType: "xurl", content: `**Thread: ${target}**\n\n${content}`, display: true },
         { triggerTurn: true },
       );
     },
@@ -171,24 +177,28 @@ export default function xurlExtension(pi: ExtensionAPI) {
     async execute(
       _toolCallId: string,
       rawParams: unknown,
-      signal?: AbortSignal,
+      _signal: AbortSignal | undefined,
+      _onUpdate: AgentToolUpdateCallback<XurlDetails> | undefined,
+      _ctx: ExtensionContext,
     ) {
       const params = rawParams as ReadAgentThreadParamsType;
       const uri = normalizeTarget(params.uri);
       const maxChars = params.max_chars ?? DEFAULT_MAX_CHARS;
 
-      const { ok, output } = await execXurl(pi, uri, signal);
+      const { ok, output } = await execXurl(pi, uri, _signal);
 
       if (!ok) {
-        return {
-          content: [{ type: "text", text: `Error reading thread: ${output}` }],
-          isError: true,
-        };
+        throw new Error(`Error reading thread: ${output}`);
       }
 
+      const truncated = truncate(output, maxChars);
       return {
-        content: [{ type: "text", text: truncate(output, maxChars) }],
-        isError: false,
+        content: [{ type: "text", text: truncated }],
+        details: {
+          uri,
+          success: true,
+          charsReturned: truncated.length,
+        },
       };
     },
   });
