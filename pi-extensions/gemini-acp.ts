@@ -73,6 +73,7 @@ type LiveRun = {
 };
 
 type PermissionOption = { optionId?: string; id?: string; name?: string; title?: string; label?: string };
+type GeminiLaunchSpec = { command: string; args: string[] };
 
 class AcpClient {
   private proc: ChildProcessWithoutNullStreams | null = null;
@@ -169,7 +170,7 @@ class AcpClient {
 
   stop(): void {
     if (this.proc && !this.proc.killed) {
-      this.proc.kill("SIGTERM");
+      this.terminateProcess(this.proc);
     }
     this.teardown(new Error("Gemini ACP process stopped"));
   }
@@ -180,12 +181,13 @@ class AcpClient {
 
   private spawnProcess(cwd: string): void {
     const bin = process.env.GEMINI_BIN || "gemini";
-    const args = ["--acp"];
+    const launch = getGeminiLaunchSpec(bin);
 
-    const proc = spawn(bin, args, {
+    const proc = spawn(launch.command, launch.args, {
       cwd,
       stdio: ["pipe", "pipe", "pipe"],
       env: process.env,
+      windowsHide: true,
     });
 
     this.proc = proc;
@@ -224,6 +226,28 @@ class AcpClient {
     proc.on("error", (err) => {
       this.teardown(new Error(`Failed to spawn gemini ACP: ${err.message}`));
     });
+  }
+
+  private terminateProcess(proc: ChildProcessWithoutNullStreams): void {
+    if (process.platform !== "win32") {
+      proc.kill("SIGTERM");
+      return;
+    }
+
+    if (typeof proc.pid !== "number") {
+      proc.kill();
+      return;
+    }
+
+    try {
+      const killer = spawn("taskkill", ["/pid", String(proc.pid), "/t", "/f"], {
+        stdio: "ignore",
+        windowsHide: true,
+      });
+      killer.on("error", () => proc.kill());
+    } catch {
+      proc.kill();
+    }
   }
 
   private handleLine(line: string): void {
@@ -443,6 +467,35 @@ function extractModelFromPromptResult(result: { _meta?: any } | undefined): stri
 
   const model = result?._meta?.model;
   return typeof model === "string" ? model : undefined;
+}
+
+function quoteCmdArg(value: string): string {
+  if (!value.length) return '""';
+  if (!/[\s"&<>^|()]/.test(value)) return value;
+  return `"${value.replace(/"/g, '""')}"`;
+}
+
+export function getGeminiLaunchSpec(
+  bin: string,
+  platform = process.platform,
+  comspec = process.env.ComSpec || "cmd.exe",
+): GeminiLaunchSpec {
+  if (platform !== "win32") {
+    return { command: bin, args: ["--acp"] };
+  }
+
+  const trimmedBin = bin.trim();
+  const lowerBin = trimmedBin.toLowerCase();
+  if (lowerBin.endsWith(".exe") || lowerBin.endsWith(".com")) {
+    return { command: trimmedBin, args: ["--acp"] };
+  }
+
+  // npm-installed CLIs on Windows are commonly exposed as .cmd shims, which
+  // need to be launched through cmd.exe to avoid ENOENT from spawn().
+  return {
+    command: comspec,
+    args: ["/d", "/s", "/c", `${quoteCmdArg(trimmedBin)} --acp`],
+  };
 }
 
 // Match the same wave animation used by pi-extensions/custom-ui.ts footer.
