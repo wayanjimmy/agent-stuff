@@ -19,6 +19,9 @@ export class Markdown {
 export class Spacer {
 	constructor(public size: number) {}
 }
+export function isKeyRelease(_data: string) {
+	return false;
+}
 export function matchesKey(_data: string, _key: string) {
 	return false;
 }

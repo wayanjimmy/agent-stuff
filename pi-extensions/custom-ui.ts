@@ -6,6 +6,7 @@
  * - Stats widget above editor (context %, cost, model with color coding, skills)
  * - Clean single-line footer (status + path/branch)
  * - Double Esc to clear prompt input (hint shown in footer)
+ * - Double Ctrl+C to quit when idle (hint shown in footer)
  *
  * Usage:
  *   pi -e pi-extensions/custom-ui.ts
@@ -13,8 +14,12 @@
 
 import path from "node:path";
 import type { AssistantMessage } from "@mariozechner/pi-ai";
-import { CustomEditor, type ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { matchesKey, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
+import {
+  CustomEditor,
+  type ExtensionAPI,
+  type KeybindingsManager,
+} from "@mariozechner/pi-coding-agent";
+import { isKeyRelease, matchesKey, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 
 const WAVE_FRAMES = ["∼", "≈", "≋", "≈"];
 
@@ -44,52 +49,120 @@ function getBaseTitle(pi: ExtensionAPI): string {
   return session ? `π - ${session} - ${cwd}` : `π - ${cwd}`;
 }
 
+function formatKey(key: string | undefined): string {
+  if (!key) return "that key";
+
+  return key
+    .split("+")
+    .map((part) => {
+      const lower = part.toLowerCase();
+      if (lower === "ctrl") return "Ctrl";
+      if (lower === "alt") return "Alt";
+      if (lower === "shift") return "Shift";
+      if (lower === "cmd" || lower === "meta") return "Cmd";
+      return part.length === 1 ? part.toUpperCase() : part[0]!.toUpperCase() + part.slice(1);
+    })
+    .join("+");
+}
+
 export default function (pi: ExtensionAPI) {
   let frameIndex = 0;
   let ticker: ReturnType<typeof setInterval> | null = null;
-  let pendingClear = false;
   let responsePhase: "idle" | "waiting" | "streaming" = "idle";
+  let pendingAction: "clear" | "quit" | null = null;
+  let pendingActionTimeout: ReturnType<typeof setTimeout> | null = null;
 
   let geminiAcpActive = false;
   let geminiAcpPhase: "idle" | "waiting" | "streaming" = "idle";
   let activeTui: any | null = null;
+  let clearKeyLabel = "Ctrl+C";
 
-  const CLEAR_TIMEOUT_MS = 1000;
+  const CONFIRM_TIMEOUT_MS = 1000;
 
-  class DoubleEscEditor extends CustomEditor {
-    private clearTimeout?: ReturnType<typeof setTimeout>;
+  const requestRender = () => activeTui?.requestRender?.();
+
+  const clearPendingAction = (shouldRender = true) => {
+    pendingAction = null;
+    if (pendingActionTimeout) {
+      clearTimeout(pendingActionTimeout);
+      pendingActionTimeout = null;
+    }
+    if (shouldRender) {
+      requestRender();
+    }
+  };
+
+  const armPendingAction = (action: "clear" | "quit") => {
+    clearPendingAction(false);
+    pendingAction = action;
+    pendingActionTimeout = setTimeout(() => {
+      pendingAction = null;
+      pendingActionTimeout = null;
+      requestRender();
+    }, CONFIRM_TIMEOUT_MS);
+    requestRender();
+  };
+
+  class ConfirmingEditor extends CustomEditor {
+    constructor(
+      tui: any,
+      theme: any,
+      private readonly appKeybindings: KeybindingsManager,
+      private readonly callbacks: {
+        isBusy: () => boolean;
+        shutdown: () => void;
+      },
+    ) {
+      super(tui, theme, appKeybindings);
+    }
 
     handleInput(data: string): void {
-      if (matchesKey(data, "escape")) {
-        if (pendingClear) {
+      if (isKeyRelease(data)) {
+        super.handleInput(data);
+        return;
+      }
+
+      if (this.appKeybindings.matches(data, "app.clear")) {
+        if (this.callbacks.isBusy()) {
+          clearPendingAction();
+          super.handleInput(data);
+          return;
+        }
+
+        if (pendingAction === "quit") {
+          clearPendingAction(false);
+          this.callbacks.shutdown();
+          return;
+        }
+
+        armPendingAction("quit");
+        if (this.getText().length > 0) {
+          super.handleInput(data);
+        }
+        return;
+      }
+
+      if (matchesKey(data, "escape") && this.getText().length > 0) {
+        if (pendingAction === "clear") {
           this.setText("");
-          pendingClear = false;
-          clearTimeout(this.clearTimeout);
+          clearPendingAction(false);
           this.tui.requestRender();
           return;
         }
 
-        if (this.getText().length > 0) {
-          pendingClear = true;
-          this.clearTimeout = setTimeout(() => {
-            pendingClear = false;
-            this.tui.requestRender();
-          }, CLEAR_TIMEOUT_MS);
-          return;
-        }
+        armPendingAction("clear");
+        return;
       }
 
-      if (pendingClear) {
-        pendingClear = false;
-        clearTimeout(this.clearTimeout);
-        this.tui.requestRender();
+      if (pendingAction) {
+        clearPendingAction();
       }
 
       super.handleInput(data);
     }
 
     dispose(): void {
-      clearTimeout(this.clearTimeout);
+      clearPendingAction(false);
       super.dispose?.();
     }
   }
@@ -119,10 +192,17 @@ export default function (pi: ExtensionAPI) {
 
     const offGeminiAcpUiState = pi.events.on("gemini-acp:ui-state", onGeminiAcpUiState);
     responsePhase = "idle";
+    clearPendingAction(false);
     const skillCount = pi.getCommands().filter((c: any) => c.source === "skill").length;
 
     ctx.ui.setEditorComponent(
-      (tui, theme, keybindings) => new DoubleEscEditor(tui, theme, keybindings),
+      (tui, theme, keybindings) => {
+        clearKeyLabel = formatKey(keybindings.getKeys("app.clear")[0]);
+        return new ConfirmingEditor(tui, theme, keybindings, {
+          isBusy: () => !ctx.isIdle() || geminiAcpActive,
+          shutdown: () => ctx.shutdown(),
+        });
+      },
     );
 
     // Stats widget above the editor
@@ -204,6 +284,7 @@ export default function (pi: ExtensionAPI) {
         dispose() {
           unsub();
           offGeminiAcpUiState?.();
+          clearPendingAction(false);
           geminiAcpActive = false;
           geminiAcpPhase = "idle";
           activeTui = null;
@@ -217,9 +298,11 @@ export default function (pi: ExtensionAPI) {
           const busy = !ctx.isIdle() || geminiAcpActive;
           const dim = (s: string) => theme.fg("dim", s);
 
-          // Status line: ✓ Ready / ~ Waiting for Response / ~~ Streaming Response [Esc again to clear]
+          // Status line: ✓ Ready / ~ Waiting for Response / ~~ Streaming Response / confirm hints
           let statusLeft: string;
-          if (pendingClear) {
+          if (pendingAction === "quit") {
+            statusLeft = `${ANSI_YELLOW}${clearKeyLabel}${ANSI_RESET} again to quit`;
+          } else if (pendingAction === "clear") {
             statusLeft = `${ANSI_BLUE}Esc${ANSI_RESET} again to clear`;
           } else if (busy) {
             const activePhase = geminiAcpActive ? geminiAcpPhase : responsePhase;
@@ -244,11 +327,13 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("agent_end", async (_event, ctx) => {
+    clearPendingAction();
     responsePhase = "idle";
     ctx.ui.setTitle(getBaseTitle(pi));
   });
 
   pi.on("session_shutdown", async (_event, ctx) => {
+    clearPendingAction(false);
     responsePhase = "idle";
     ctx.ui.setTitle(getBaseTitle(pi));
   });
