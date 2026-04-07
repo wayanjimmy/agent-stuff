@@ -22,7 +22,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { Box, Text, isKeyRelease, matchesKey } from "@mariozechner/pi-tui";
+import { Text, truncateToWidth, isKeyRelease, matchesKey } from "@mariozechner/pi-tui";
 
 const EXT_STATUS_KEY = "gemini-acp";
 const EXT_WIDGET_KEY = "gemini-acp";
@@ -902,10 +902,12 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
 		}
 
 		ctx.ui.setStatus(EXT_STATUS_KEY, status);
-		ctx.ui.setWidget(
-			EXT_WIDGET_KEY,
-			body.map((line) => (line.length > 96 ? `${line.slice(0, 95)}…` : line)),
-		);
+		ctx.ui.setWidget(EXT_WIDGET_KEY, () => ({
+			invalidate() {},
+			render(width: number): string[] {
+				return body.map((line) => truncateToWidth(line, Math.max(0, width)));
+			},
+		}));
 	};
 
 	const cancelLiveRun = async (ctx: any, source: "command" | "escape") => {
