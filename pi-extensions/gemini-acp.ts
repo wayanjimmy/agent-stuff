@@ -1,20 +1,26 @@
 /**
  * Gemini ACP Extension
  *
- * Slash command:
- *   /gemini <prompt>
- *   /gemini new <prompt>
- *   /gemini resume <sessionId> [prompt]
- *   /gemini cmd <name> [args...]
- *   /gemini stop
- *   /gemini status
- *   /gemini sessions
+ * Slash commands:
+ *   /gemini <prompt>                    - Run prompt in current/resumed session
+ *   /gemini new <prompt>                - Start a new session with prompt
+ *   /gemini resume <sessionId> [prompt] - Resume a session, optionally with prompt
+ *   /gemini cmd <name> [args...]        - Run a custom .toml command
+ *   /gemini stop                        - Cancel current run
+ *   /gemini status                      - Show process/session status
+ *   /gemini sessions                    - List known sessions
  *
- * What it does:
+ * Architecture:
  * - Spawns `gemini --acp` as a background subprocess
- * - Talks JSON-RPC 2.0 over NDJSON (stdio)
- * - Streams progress to Pi UI (status + widget)
- * - Persists session mapping via pi.appendEntry()
+ * - Communicates via JSON-RPC 2.0 over NDJSON (stdio)
+ * - Streams progress to Pi UI (status bar + widget)
+ * - Persists session state via pi.appendEntry()
+ * - Auto-approves all permission requests (YOLO mode)
+ *
+ * Custom commands:
+ * - Resolves .toml files from .gemini/commands/ or ~/.gemini/commands/
+ * - Supports namespacing: "git:commit" -> commands/git/commit.toml
+ * - Expands {{args}} placeholder or appends args after prompt
  */
 
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
@@ -52,7 +58,6 @@ type JsonRpcIncomingRequest = {
 
 type GeminiState = {
 	currentSessionId?: string;
-	yoloPermissions?: boolean;
 	sessions: Record<string, { lastUsedAt: number; cwd: string; model?: string }>;
 };
 
@@ -96,7 +101,6 @@ class AcpClient {
 	private nextId = 1;
 	private ready = false;
 	private initialized = false;
-	private yoloPermissions = true;
 	private lineBuffer = "";
 	private stderrBuffer = "";
 	private loadedSessions = new Set<string>();
@@ -125,10 +129,6 @@ class AcpClient {
 
 	isRunning(): boolean {
 		return !!this.proc && !this.proc.killed;
-	}
-
-	setYoloPermissions(enabled: boolean): void {
-		this.yoloPermissions = enabled;
 	}
 
 	async ensureReady(cwd: string): Promise<void> {
@@ -335,16 +335,15 @@ class AcpClient {
 		}
 
 		if (request.method === "requestPermission") {
-			if (!this.yoloPermissions) {
+			const options = (request.params?.options || request.params?.permissionOptions || []) as PermissionOption[];
+			const selectedOptionId = pickYoloPermissionOption(options);
+
+			if (!selectedOptionId) {
 				this.writeResponse(request.id, { outcome: "cancelled" });
 				return;
 			}
 
-			const options = (request.params?.options || request.params?.permissionOptions || []) as PermissionOption[];
-			const selectedOptionId = pickYoloPermissionOption(options);
-			const result = selectedOptionId
-				? { outcome: "selected", optionId: selectedOptionId }
-				: { outcome: "selected" };
+			const result = { outcome: "selected", optionId: selectedOptionId };
 			this.writeResponse(request.id, result);
 			return;
 		}
@@ -440,14 +439,13 @@ class AcpClient {
 }
 
 function restoreState(ctx: any): GeminiState {
-	const state: GeminiState = { sessions: {}, yoloPermissions: true };
+	const state: GeminiState = { sessions: {} };
 	for (const entry of ctx.sessionManager.getEntries()) {
 		if (entry.type !== "custom" || entry.customType !== STATE_ENTRY_TYPE) continue;
 		const data = entry.data as GeminiState | undefined;
 		if (data && typeof data === "object") {
 			state.currentSessionId = data.currentSessionId;
 			state.sessions = data.sessions || {};
-			state.yoloPermissions = data.yoloPermissions ?? true;
 		}
 	}
 	return state;
@@ -688,7 +686,8 @@ function pickYoloPermissionOption(options: PermissionOption[]): string | undefin
 		.filter((x) => !!x.id)
 		.sort((a, b) => b.score - a.score || a.idx - b.idx);
 
-	return scored[0]?.id;
+	const best = scored[0];
+	return best && best.score >= 0 ? best.id : undefined;
 }
 
 function formatElapsed(ms: number): string {
@@ -1010,10 +1009,7 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
 		} else if (updateType === "available_commands_update") {
 			pushLiveEvent("Available Gemini commands updated");
 		} else if (method === "requestPermission") {
-			setLiveProgress(
-				"waiting",
-				state.yoloPermissions ? "Permission requested -> auto-approved (YOLO)" : "Permission requested -> blocked",
-			);
+			setLiveProgress("waiting", "Permission requested -> auto-approved (YOLO)");
 		} else if (updateType && updateType !== "session/update") {
 			pushLiveEvent(`Update received: ${updateType}`);
 		}
@@ -1023,7 +1019,6 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx) => {
 		state = restoreState(ctx);
-		client.setYoloPermissions(state.yoloPermissions ?? true);
 		ctx.ui.setStatus(EXT_STATUS_KEY, "Gemini ACP idle");
 		ctx.ui.setWidget(EXT_WIDGET_KEY, []);
 
@@ -1060,12 +1055,12 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
 
 	pi.registerCommand("gemini", {
 		description:
-			"Run Gemini via ACP (/gemini <prompt> | new <prompt> | cmd <name> [args...] | resume <sessionId> [prompt] | stop | status | sessions | yolo on|off)",
+			"Run Gemini via ACP (/gemini <prompt> | new <prompt> | cmd <name> [args...] | resume <sessionId> [prompt] | stop | status | sessions)",
 		async handler(args: string, ctx: any) {
 			const raw = args.trim();
 			if (!raw) {
 				ctx.ui.notify(
-					"Usage: /gemini <prompt> | /gemini new <prompt> | /gemini cmd <name> [args...] | /gemini resume <sessionId> [prompt] | /gemini stop | /gemini status | /gemini sessions | /gemini yolo on|off",
+					"Usage: /gemini <prompt> | /gemini new <prompt> | /gemini cmd <name> [args...] | /gemini resume <sessionId> [prompt] | /gemini stop | /gemini status | /gemini sessions",
 					"info",
 				);
 				return;
@@ -1082,7 +1077,7 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
 				const status = [
 					`process: ${client.isRunning() ? "running" : "stopped"}`,
 					`current session: ${state.currentSessionId ?? "(none)"}`,
-					`permissions: ${state.yoloPermissions ? "YOLO auto-approve" : "deny-by-default"}`,
+					`permissions: YOLO auto-approve`,
 					`known sessions: ${Object.keys(state.sessions).length}`,
 					live ? `active run: ${live.running ? "running" : "done"}` : "active run: none",
 					...(live
@@ -1110,32 +1105,7 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
 				return;
 			}
 
-			if (sub === "yolo") {
-				const mode = (rest[0] || "").toLowerCase();
-				if (!mode) {
-					ctx.ui.notify(
-						`YOLO is currently ${state.yoloPermissions ? "on" : "off"}. Use /gemini yolo on|off`,
-						"info",
-					);
-					return;
-				}
 
-				if (mode !== "on" && mode !== "off") {
-					ctx.ui.notify("Usage: /gemini yolo on|off", "error");
-					return;
-				}
-
-				state.yoloPermissions = mode === "on";
-				client.setYoloPermissions(state.yoloPermissions);
-				persistState();
-				ctx.ui.notify(
-					state.yoloPermissions
-						? "Gemini ACP permissions set to YOLO auto-approve"
-						: "Gemini ACP permissions set to deny-by-default",
-					state.yoloPermissions ? "success" : "warning",
-				);
-				return;
-			}
 
 			if (sub === "sessions") {
 				const sessions = Object.entries(state.sessions)
