@@ -160,11 +160,6 @@ export default function (pi: ExtensionAPI) {
 
       super.handleInput(data);
     }
-
-    dispose(): void {
-      clearPendingAction(false);
-      super.dispose?.();
-    }
   }
 
   pi.on("agent_start", async () => {
@@ -292,10 +287,6 @@ export default function (pi: ExtensionAPI) {
           unsub();
           if (typeof offGeminiAcpUiState === "function") {
             offGeminiAcpUiState();
-          } else if (pi.events && typeof pi.events.off === "function") {
-            pi.events.off("gemini-acp:ui-state", onGeminiAcpUiState);
-          } else if (pi.events && typeof pi.events.removeListener === "function") {
-            pi.events.removeListener("gemini-acp:ui-state", onGeminiAcpUiState);
           }
           clearPendingAction(false);
           geminiAcpActive = false;
