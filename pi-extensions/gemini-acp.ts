@@ -644,7 +644,7 @@ function discoverGeminiCommandNames(cwd: string): string[] {
 	const seen = new Set<string>();
 
 	const walk = (base: string, prefix: string) => {
-		let dirents: ReturnType<typeof readdirSync>;
+		let dirents;
 		try {
 			dirents = readdirSync(join(base, prefix), { withFileTypes: true });
 		} catch {
