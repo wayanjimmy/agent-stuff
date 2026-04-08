@@ -3,12 +3,13 @@
  *
  * Slash commands:
  *   /gemini <prompt>                    - Run prompt in current/resumed session
- *   /gemini new <prompt>                - Start a new session with prompt
- *   /gemini resume <sessionId> [prompt] - Resume a session, optionally with prompt
- *   /gemini cmd <name> [args...]        - Run a custom .toml command
- *   /gemini stop                        - Cancel current run
- *   /gemini status                      - Show process/session status
- *   /gemini sessions                    - List known sessions
+ *   /gemini:new <prompt>                - Start a new session with prompt
+ *   /gemini:resume <sessionId> [prompt] - Resume a session, optionally with prompt
+ *   /gemini:cmd <name> [args...]        - Run a custom .toml command
+ *   /gemini:cmd:<name> [args...]        - Run a discovered custom command directly
+ *   /gemini:stop                        - Cancel current run
+ *   /gemini:status                      - Show process/session status
+ *   /gemini:sessions                    - List known sessions
  *
  * Architecture:
  * - Spawns `gemini --acp` as a background subprocess
@@ -24,7 +25,7 @@
  */
 
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
@@ -630,6 +631,48 @@ function expandGeminiCommandPrompt(prompt: string, args: string): string {
 	return prompt;
 }
 
+/**
+ * Scan `.gemini/commands/` directories (project and home) for `.toml` files
+ * and return their logical command names (e.g. "git:commit" for `git/commit.toml`).
+ */
+function discoverGeminiCommandNames(cwd: string): string[] {
+	const dirs = [
+		join(cwd, ".gemini", "commands"),
+		join(homedir(), ".gemini", "commands"),
+	];
+
+	const seen = new Set<string>();
+
+	const walk = (base: string, prefix: string) => {
+		let dirents: ReturnType<typeof readdirSync>;
+		try {
+			dirents = readdirSync(join(base, prefix), { withFileTypes: true });
+		} catch {
+			return;
+		}
+
+		for (const dirent of dirents) {
+			const entryName = dirent.name;
+			const rel = prefix ? `${prefix}/${entryName}` : entryName;
+
+			if (dirent.isDirectory()) {
+				walk(base, rel);
+			} else if (entryName.endsWith(".toml")) {
+				const name = rel.replace(/\.toml$/, "").replace(/\//g, ":");
+				if (/^[a-zA-Z0-9_:-]+$/.test(name)) {
+					seen.add(name);
+				}
+			}
+		}
+	};
+
+	for (const dir of dirs) {
+		walk(dir, "");
+	}
+
+	return [...seen].sort();
+}
+
 function summarizeStderr(stderr: string): string {
 	return stderr
 		.split(/\r?\n/)
@@ -1053,240 +1096,183 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
 		client.stop();
 	});
 
-	pi.registerCommand("gemini", {
-		description:
-			"Run Gemini via ACP (/gemini <prompt> | new <prompt> | cmd <name> [args...] | resume <sessionId> [prompt] | stop | status | sessions)",
-		async handler(args: string, ctx: any) {
-			const raw = args.trim();
-			if (!raw) {
-				ctx.ui.notify(
-					"Usage: /gemini <prompt> | /gemini new <prompt> | /gemini cmd <name> [args...] | /gemini resume <sessionId> [prompt] | /gemini stop | /gemini status | /gemini sessions",
-					"info",
-				);
+	// ---------------------------------------------------------------------------
+	// Extracted command helpers
+	// ---------------------------------------------------------------------------
+
+	const showStatus = () => {
+		const status = [
+			`process: ${client.isRunning() ? "running" : "stopped"}`,
+			`current session: ${state.currentSessionId ?? "(none)"}`,
+			`permissions: YOLO auto-approve`,
+			`known sessions: ${Object.keys(state.sessions).length}`,
+			live ? `active run: ${live.running ? "running" : "done"}` : "active run: none",
+			...(live
+				? [
+					`phase: ${describePhase(live.phase)}`,
+					`current action: ${live.currentAction}`,
+					...(live.model ? [`model: ${live.model}`] : []),
+					...(live.stopReason ? [`stop reason: ${live.stopReason}`] : []),
+					`recent events: ${trimLines(live.events, 8).length}`,
+				]
+				: []),
+		].join("\n");
+
+		const recentEvents = live ? trimLines(live.events, 8).map((event) => `- ${event}`).join("\n") : "";
+
+		const stderr = client.getStderrTail();
+		pi.sendMessage(
+			{
+				customType: "gemini-acp",
+				content: `### Gemini ACP Status\n\n${status}${recentEvents ? `\n\n### Recent events\n\n${recentEvents}` : ""}${stderr ? `\n\n### stderr (tail)\n\n\`\`\`\n${stderr}\n\`\`\`` : ""}`,
+				display: true,
+			},
+			{ triggerTurn: false },
+		);
+	};
+
+	const showSessions = () => {
+		const sessions = Object.entries(state.sessions)
+			.sort((a, b) => b[1].lastUsedAt - a[1].lastUsedAt)
+			.map(
+				([id, meta]) =>
+					`- ${id}  (${new Date(meta.lastUsedAt).toLocaleString()})  cwd=${meta.cwd}${meta.model ? `  model=${meta.model}` : ""}`,
+			)
+			.join("\n");
+
+		pi.sendMessage(
+			{
+				customType: "gemini-acp",
+				content: `### Gemini Sessions\n\n${sessions || "(none)"}`,
+				display: true,
+			},
+			{ triggerTurn: false },
+		);
+	};
+
+	type GeminiRunOpts = {
+		prompt?: string;
+		forceNewSession?: boolean;
+		explicitSessionId?: string;
+		explicitResume?: boolean;
+	};
+
+	const executeGeminiRun = async (opts: GeminiRunOpts, ctx: any) => {
+		if (ctx.isIdle && typeof ctx.isIdle === "function" && !ctx.isIdle()) {
+			ctx.ui.notify("Pi is currently busy. Wait for current turn to finish.", "warning");
+			return;
+		}
+
+		if (live?.running) {
+			ctx.ui.notify("Gemini ACP is already running. Please wait or use /gemini:stop.", "warning");
+			return;
+		}
+
+		const promptText = opts.prompt;
+		const sessionIdArg = opts.explicitSessionId;
+
+		if (!promptText && !opts.explicitResume) {
+			ctx.ui.notify("Prompt cannot be empty", "error");
+			return;
+		}
+
+		try {
+			liveCtx = ctx;
+			live = {
+				sessionId: sessionIdArg || state.currentSessionId || "(starting)",
+				startedAt: Date.now(),
+				prompt: promptText || "(resume only)",
+				answer: "",
+				answerStarted: false,
+				thought: "",
+				thoughtStarted: false,
+				events: [],
+				running: true,
+				phase: "starting",
+				currentAction: "Launching Gemini ACP",
+			};
+			pushLiveEvent("Launching Gemini ACP");
+			startLiveTicker();
+			publishUiState("waiting", live.sessionId);
+			updateUi(ctx);
+
+			let sessionId: string;
+
+			if (opts.forceNewSession) {
+				sessionId = await client.ensureSession(ctx.cwd);
+			} else if (opts.explicitResume) {
+				sessionId = await client.ensureSession(ctx.cwd, sessionIdArg, { explicitResume: true });
+			} else {
+				sessionId = await client.ensureSession(ctx.cwd, state.currentSessionId);
+			}
+
+			state.currentSessionId = sessionId;
+			state.sessions[sessionId] = { lastUsedAt: Date.now(), cwd: ctx.cwd };
+			persistState();
+
+			if (live) {
+				live.sessionId = sessionId;
+				setLiveProgress("waiting", `Gemini session ready: ${sessionId}`);
+			}
+
+			if (!promptText) {
+				ctx.ui.notify(`Resumed Gemini session ${sessionId}`, "success");
 				return;
 			}
 
-			const [sub, ...rest] = raw.split(/\s+/);
+			if (live) {
+				setLiveProgress("waiting", "Waiting for Gemini response");
+			}
+			publishUiState("waiting", sessionId);
+			updateUi(ctx);
 
-			if (sub === "stop") {
-				await cancelLiveRun(ctx, "command");
-				return;
+			const result = await client.prompt(sessionId, promptText);
+			const usedModel = extractModelFromPromptResult(result);
+
+			live.running = false;
+			live.phase = "completed";
+			live.currentAction = "Gemini run completed";
+			live.stopReason = result?.stopReason;
+			if (usedModel) {
+				live.model = usedModel;
+				pushLiveEvent(`Model used: ${usedModel}`);
+			}
+			pushLiveEvent(`Prompt completed${result?.stopReason ? ` (${result.stopReason})` : ""}`);
+			state.sessions[sessionId] = { lastUsedAt: Date.now(), cwd: ctx.cwd, model: usedModel };
+			persistState();
+			stopLiveTicker();
+			publishUiState("idle", sessionId);
+			updateUi(ctx);
+
+			const answer = live.answer.trim() || "(no streamed text returned)";
+			const thought = live.thought.trim();
+
+			const model = state.sessions[sessionId]?.model;
+
+			let displayContent = `### Gemini (${sessionId})\n\n**Prompt**\n\n${promptText}\n\n**Answer**\n\n${answer}`;
+			if (thought) {
+				displayContent += `\n\n<details><summary>Thought stream</summary>\n\n${thought}\n\n</details>`;
 			}
 
-			if (sub === "status") {
-				const status = [
-					`process: ${client.isRunning() ? "running" : "stopped"}`,
-					`current session: ${state.currentSessionId ?? "(none)"}`,
-					`permissions: YOLO auto-approve`,
-					`known sessions: ${Object.keys(state.sessions).length}`,
-					live ? `active run: ${live.running ? "running" : "done"}` : "active run: none",
-					...(live
-						? [
-							`phase: ${describePhase(live.phase)}`,
-							`current action: ${live.currentAction}`,
-							...(live.model ? [`model: ${live.model}`] : []),
-							...(live.stopReason ? [`stop reason: ${live.stopReason}`] : []),
-							`recent events: ${trimLines(live.events, 8).length}`,
-						]
-						: []),
-				].join("\n");
-
-				const recentEvents = live ? trimLines(live.events, 8).map((event) => `- ${event}`).join("\n") : "";
-
-				const stderr = client.getStderrTail();
-				pi.sendMessage(
-					{
-						customType: "gemini-acp",
-						content: `### Gemini ACP Status\n\n${status}${recentEvents ? `\n\n### Recent events\n\n${recentEvents}` : ""}${stderr ? `\n\n### stderr (tail)\n\n\`\`\`\n${stderr}\n\`\`\`` : ""}`,
-						display: true,
+			pi.sendMessage(
+				{
+					customType: "gemini-acp",
+					content: displayContent,
+					display: true,
+					details: {
+						sessionId,
+						prompt: promptText,
+						answer,
+						thought,
+						events: live.events,
+						model,
+						stopReason: live.stopReason,
 					},
-					{ triggerTurn: false },
-				);
-				return;
-			}
+				},
+				{ triggerTurn: false },
+			);
 
-
-
-			if (sub === "sessions") {
-				const sessions = Object.entries(state.sessions)
-					.sort((a, b) => b[1].lastUsedAt - a[1].lastUsedAt)
-					.map(
-						([id, meta]) =>
-							`- ${id}  (${new Date(meta.lastUsedAt).toLocaleString()})  cwd=${meta.cwd}${meta.model ? `  model=${meta.model}` : ""}`,
-					)
-					.join("\n");
-
-				pi.sendMessage(
-					{
-						customType: "gemini-acp",
-						content: `### Gemini Sessions\n\n${sessions || "(none)"}`,
-						display: true,
-					},
-					{ triggerTurn: false },
-				);
-				return;
-			}
-
-			if (ctx.isIdle && typeof ctx.isIdle === "function" && !ctx.isIdle()) {
-				ctx.ui.notify("Pi is currently busy. Wait for current turn to finish.", "warning");
-				return;
-			}
-
-			if (live?.running) {
-				ctx.ui.notify("Gemini ACP is already running. Please wait or use /gemini stop.", "warning");
-				return;
-			}
-
-			let mode: "default" | "new" | "resume" | "cmd" = "default";
-			let sessionIdArg: string | undefined;
-			let promptText = raw;
-
-			if (sub === "new") {
-				mode = "new";
-				promptText = rest.join(" ").trim();
-			} else if (sub === "resume") {
-				mode = "resume";
-				sessionIdArg = rest[0];
-				promptText = rest.slice(1).join(" ").trim();
-				if (!sessionIdArg) {
-					ctx.ui.notify("Usage: /gemini resume <sessionId> [prompt]", "error");
-					return;
-				}
-			} else if (sub === "cmd") {
-				const cmdName = rest[0];
-				if (!cmdName) {
-					ctx.ui.notify("Usage: /gemini cmd <command-name> [args...]\nResolves a custom Gemini .toml command and runs it via ACP.", "info");
-					return;
-				}
-
-				const cmdArgs = rest.slice(1).join(" ");
-				const expanded = resolveGeminiCommand(cmdName, cmdArgs, ctx.cwd);
-				if (!expanded) {
-					ctx.ui.notify(`Gemini command not found: ${cmdName}\nLooked in .gemini/commands/ and ~/.gemini/commands/`, "error");
-					return;
-				}
-
-				ctx.ui.notify(`Resolved Gemini command /${cmdName} — sending expanded prompt via ACP`, "info");
-
-				mode = "cmd";
-				promptText = expanded;
-			}
-
-			if (!promptText && mode !== "resume") {
-				ctx.ui.notify("Prompt cannot be empty", "error");
-				return;
-			}
-
-			try {
-				// Optimistic UI: show activity immediately so Enter doesn't feel frozen.
-				liveCtx = ctx;
-				live = {
-					sessionId: sessionIdArg || state.currentSessionId || "(starting)",
-					startedAt: Date.now(),
-					prompt: promptText || "(resume only)",
-					answer: "",
-					answerStarted: false,
-					thought: "",
-					thoughtStarted: false,
-					events: [],
-					running: true,
-					phase: "starting",
-					currentAction: "Launching Gemini ACP",
-				};
-				pushLiveEvent("Launching Gemini ACP");
-				startLiveTicker();
-				publishUiState("waiting", live.sessionId);
-				updateUi(ctx);
-
-				let sessionId: string;
-
-				if (mode === "new") {
-					sessionId = await client.ensureSession(ctx.cwd);
-				} else if (mode === "resume") {
-					sessionId = await client.ensureSession(ctx.cwd, sessionIdArg, { explicitResume: true });
-				} else {
-					sessionId = await client.ensureSession(ctx.cwd, state.currentSessionId);
-				}
-
-				state.currentSessionId = sessionId;
-				state.sessions[sessionId] = { lastUsedAt: Date.now(), cwd: ctx.cwd };
-				persistState();
-
-				// Update optimistic placeholder session id with actual id.
-				if (live) {
-					live.sessionId = sessionId;
-					setLiveProgress("waiting", `Gemini session ready: ${sessionId}`);
-				}
-
-				if (!promptText) {
-					stopLiveTicker();
-					publishUiState("idle", sessionId);
-					live = null;
-					liveCtx = null;
-					updateUi(ctx);
-					ctx.ui.notify(`Resumed Gemini session ${sessionId}`, "success");
-					return;
-				}
-
-				if (live) {
-					setLiveProgress("waiting", "Waiting for Gemini response");
-				}
-				publishUiState("waiting", sessionId);
-				updateUi(ctx);
-
-				const result = await client.prompt(sessionId, promptText);
-				const usedModel = extractModelFromPromptResult(result);
-
-				live.running = false;
-				live.phase = "completed";
-				live.currentAction = "Gemini run completed";
-				live.stopReason = result?.stopReason;
-				if (usedModel) {
-					live.model = usedModel;
-					pushLiveEvent(`Model used: ${usedModel}`);
-				}
-				pushLiveEvent(`Prompt completed${result?.stopReason ? ` (${result.stopReason})` : ""}`);
-				state.sessions[sessionId] = { lastUsedAt: Date.now(), cwd: ctx.cwd, model: usedModel };
-				persistState();
-				stopLiveTicker();
-				publishUiState("idle", sessionId);
-				updateUi(ctx);
-
-				const answer = live.answer.trim() || "(no streamed text returned)";
-				const thought = live.thought.trim();
-
-				const model = state.sessions[sessionId]?.model;
-
-				// Rich display message for the UI widget (not injected into Pi's context)
-				let displayContent = `### Gemini (${sessionId})\n\n**Prompt**\n\n${promptText}\n\n**Answer**\n\n${answer}`;
-				if (thought) {
-					displayContent += `\n\n<details><summary>Thought stream</summary>\n\n${thought}\n\n</details>`;
-				}
-
-				pi.sendMessage(
-					{
-						customType: "gemini-acp",
-						content: displayContent,
-						display: true,
-						details: {
-							sessionId,
-							prompt: promptText,
-							answer,
-							thought,
-							events: live.events,
-							model,
-							stopReason: live.stopReason,
-						},
-					},
-					{ triggerTurn: false },
-				);
-
-				const finalSessionId = sessionId;
-
-				// Hidden context message for Pi's LLM. Keep the Gemini result available
-				// in context, but steer Pi toward asking the user what to do next
-				// instead of summarizing or re-running the completed task.
-				const contextContent = `[Gemini ACP completed] Gemini already executed this task${model ? ` (${model})` : ""}. Do NOT re-run it. Treat the Gemini output below as background context only.
+			const contextContent = `[Gemini ACP completed] Gemini already executed this task${model ? ` (${model})` : ""}. Do NOT re-run it. Treat the Gemini output below as background context only.
 
 Your next visible response must be brief and should NOT summarize, restate, analyze, or transform the Gemini result. Instead, tell the user the Gemini result is ready and ask what they want to do with it next.
 
@@ -1298,33 +1284,140 @@ Gemini result:
 ${answer}
 === GEMINI OUTPUT END ===`;
 
-				pi.sendMessage(
-					{
-						customType: "gemini-acp-context",
-						content: contextContent,
-						display: false,
-					},
-					{ triggerTurn: true },
-				);
-			} catch (err) {
-				if (live) {
-					live.running = false;
-					live.phase = "error";
-					live.currentAction = "Gemini ACP run failed";
-					live.error = err instanceof Error ? err.message : String(err);
-					pushLiveEvent(`Error: ${live.error}`);
-					stopLiveTicker();
-					updateUi(ctx);
-				}
-				ctx.ui.notify(`Gemini ACP error: ${err instanceof Error ? err.message : String(err)}`, "error");
-			} finally {
-				const lastSessionId = live?.sessionId;
-				stopLiveTicker();
-				publishUiState("idle", lastSessionId);
-				live = null;
-				liveCtx = null;
-				updateUi(ctx);
+			pi.sendMessage(
+				{
+					customType: "gemini-acp-context",
+					content: contextContent,
+					display: false,
+				},
+				{ triggerTurn: true },
+			);
+		} catch (err) {
+			if (live) {
+				live.running = false;
+				pushLiveEvent(`Error: ${err instanceof Error ? err.message : String(err)}`);
 			}
+			ctx.ui.notify(`Gemini ACP error: ${err instanceof Error ? err.message : String(err)}`, "error");
+		} finally {
+			const lastSessionId = live?.sessionId;
+			stopLiveTicker();
+			publishUiState("idle", lastSessionId);
+			live = null;
+			liveCtx = null;
+			updateUi(ctx);
+		}
+	};
+
+	const runCustomCommandByName = async (name: string, rawArgs: string, ctx: any) => {
+		const expanded = resolveGeminiCommand(name, rawArgs, ctx.cwd);
+		if (!expanded) {
+			ctx.ui.notify(`Gemini command not found: ${name}\nLooked in .gemini/commands/ and ~/.gemini/commands/`, "error");
+			return;
+		}
+
+		ctx.ui.notify(`Resolved Gemini command /${name} — sending expanded prompt via ACP`, "info");
+		await executeGeminiRun({ prompt: expanded }, ctx);
+	};
+
+	// ---------------------------------------------------------------------------
+	// Colon-namespaced commands
+	// ---------------------------------------------------------------------------
+
+	pi.registerCommand("gemini", {
+		description: "Run Gemini via ACP with a prompt",
+		async handler(args: string, ctx: any) {
+			const raw = args.trim();
+			if (!raw) {
+				ctx.ui.notify(
+					"Usage: /gemini <prompt>\nSee also: /gemini:new, /gemini:resume, /gemini:cmd, /gemini:stop, /gemini:status, /gemini:sessions",
+					"info",
+				);
+				return;
+			}
+
+			await executeGeminiRun({ prompt: raw }, ctx);
 		},
+	});
+
+	pi.registerCommand("gemini:new", {
+		description: "Start a new Gemini session with a prompt",
+		async handler(args: string, ctx: any) {
+			const prompt = args.trim() || undefined;
+			await executeGeminiRun({ prompt, forceNewSession: true }, ctx);
+		},
+	});
+
+	pi.registerCommand("gemini:resume", {
+		description: "Resume an existing Gemini session (/gemini:resume <sessionId> [prompt])",
+		async handler(args: string, ctx: any) {
+			const parts = args.trim().split(/\s+/);
+			const sessionIdArg = parts[0];
+			if (!sessionIdArg) {
+				ctx.ui.notify("Usage: /gemini:resume <sessionId> [prompt]", "error");
+				return;
+			}
+			const prompt = parts.slice(1).join(" ").trim() || undefined;
+			await executeGeminiRun({ prompt, explicitSessionId: sessionIdArg, explicitResume: true }, ctx);
+		},
+	});
+
+	pi.registerCommand("gemini:stop", {
+		description: "Cancel the current Gemini run",
+		async handler(_args: string, ctx: any) {
+			await cancelLiveRun(ctx, "command");
+		},
+	});
+
+	pi.registerCommand("gemini:status", {
+		description: "Show Gemini ACP process/session status",
+		async handler(_args: string, ctx: any) {
+			showStatus();
+		},
+	});
+
+	pi.registerCommand("gemini:sessions", {
+		description: "List known Gemini sessions",
+		async handler(_args: string, ctx: any) {
+			showSessions();
+		},
+	});
+
+	pi.registerCommand("gemini:cmd", {
+		description: "Run a custom Gemini .toml command (/gemini:cmd <name> [args...])",
+		async handler(args: string, ctx: any) {
+			const parts = args.trim().split(/\s+/);
+			const cmdName = parts[0];
+			if (!cmdName) {
+				ctx.ui.notify("Usage: /gemini:cmd <command-name> [args...]\nResolves a custom Gemini .toml command and runs it via ACP.", "info");
+				return;
+			}
+			await runCustomCommandByName(cmdName, parts.slice(1).join(" "), ctx);
+		},
+	});
+
+	// ---------------------------------------------------------------------------
+	// Dynamic custom command discovery
+	// ---------------------------------------------------------------------------
+
+	const registeredDynamicCommands = new Set<string>();
+
+	const discoverAndRegisterCustomCommands = (cwd: string) => {
+		const names = discoverGeminiCommandNames(cwd);
+		for (const name of names) {
+			const commandName = `gemini:cmd:${name}`;
+			if (registeredDynamicCommands.has(commandName)) continue;
+			registeredDynamicCommands.add(commandName);
+			pi.registerCommand(commandName, {
+				description: `Run custom Gemini command "${name}"`,
+				async handler(args: string, ctx: any) {
+					await runCustomCommandByName(name, args.trim(), ctx);
+				},
+			});
+		}
+	};
+
+	// Re-discover on session start so new .toml files are picked up.
+	pi.on("session_start", async (_event, ctx) => {
+		discoverAndRegisterCustomCommands(ctx.cwd);
 	});
 }
