@@ -119,7 +119,7 @@ function persistState(pi: ExtensionAPI) {
 
 function updateStatus(ctx: ExtensionContext) {
 	if (state.active) {
-		ctx.ui.setStatus("caveman", ctx.ui.theme.fg("accent", `🦴 caveman:${state.level}`));
+		ctx.ui.setStatus("caveman", ctx.ui.theme.fg("accent", `caveman ${state.level}`));
 	} else {
 		ctx.ui.setStatus("caveman", undefined);
 	}

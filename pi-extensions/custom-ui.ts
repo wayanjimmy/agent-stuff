@@ -323,7 +323,9 @@ export default function (pi: ExtensionAPI) {
             const wave = WAVE_FRAMES[frameIndex];
             statusLeft = `${theme.fg("accent", wave)} ${label}`;
           } else {
-            statusLeft = `${theme.fg("success", "✓")} Ready`;
+            const extStatuses = footerData.getExtensionStatuses();
+            const cavemanStatus = extStatuses.get("caveman");
+            statusLeft = `${theme.fg("success", "✓")} Ready` + (cavemanStatus ? ` · ${cavemanStatus}` : "");
           }
 
           const cwd = process.env.HOME
