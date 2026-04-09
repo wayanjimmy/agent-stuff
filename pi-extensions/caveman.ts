@@ -12,14 +12,12 @@
  *   /caveman:ultra    - Ultra intensity (abbreviations, arrows, minimal words)
  *   /caveman:off      - Disable caveman mode
  *   /caveman:status   - Show current caveman state
- *   Ctrl+Shift+C      - Quick toggle caveman mode
  *
  * Auto-Clarity: Security warnings, destructive ops, and confused users
  * automatically get full English. Code blocks are never compressed.
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { Key } from "@mariozechner/pi-tui";
 
 type CavemanLevel = "lite" | "full" | "ultra";
 
@@ -145,7 +143,7 @@ export default function cavemanExtension(pi: ExtensionAPI) {
 			persistState(pi);
 			updateStatus(ctx);
 			ctx.ui.notify(
-				state.active ? `🦴 Caveman ON (${state.level})` : "Caveman OFF",
+				state.active ? `Caveman ON (${state.level})` : "Caveman OFF",
 				"info"
 			);
 		},
@@ -160,7 +158,7 @@ export default function cavemanExtension(pi: ExtensionAPI) {
 				state.level = level;
 				persistState(pi);
 				updateStatus(ctx);
-				ctx.ui.notify(`🦴 Caveman ON (${level})`, "info");
+				ctx.ui.notify(`Caveman ON (${level})`, "info");
 			},
 		});
 	}
@@ -181,29 +179,9 @@ export default function cavemanExtension(pi: ExtensionAPI) {
 		description: "Show caveman mode status",
 		handler: async (_args, ctx) => {
 			const status = state.active
-				? `🦴 Caveman active — intensity: ${state.level}`
+				? `Caveman active — intensity: ${state.level}`
 				: "Caveman inactive";
 			ctx.ui.notify(status, "info");
-		},
-	});
-
-	// -------------------------------------------------------------------------
-	// KEYBOARD SHORTCUT
-	// -------------------------------------------------------------------------
-
-	pi.registerShortcut(Key.ctrlShift("c"), {
-		description: "Toggle caveman mode",
-		handler: async (ctx) => {
-			state.active = !state.active;
-			if (state.active && !state.level) {
-				state.level = "full";
-			}
-			persistState(pi);
-			ctx.ui.notify(
-				state.active ? `🦴 Caveman ON (${state.level})` : "Caveman OFF",
-				"info"
-			);
-			updateStatus(ctx);
 		},
 	});
 
