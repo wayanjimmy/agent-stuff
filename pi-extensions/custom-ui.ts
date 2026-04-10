@@ -41,6 +41,8 @@ const MODEL_COLORS: Record<string, string> = {
   "glm-4.5-air": ANSI_YELLOW,
   "step-3.5-flash": ANSI_YELLOW,
   "openrouter-free": ANSI_YELLOW,
+  "flash": ANSI_YELLOW,
+  "turbo": ANSI_YELLOW,
 };
 
 function getBaseTitle(pi: ExtensionAPI): string {
