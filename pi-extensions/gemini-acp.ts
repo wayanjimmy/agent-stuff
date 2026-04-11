@@ -12,8 +12,6 @@
  *   /gemini:sessions                    - List known sessions
  *
  * Tools (LLM-callable):
- *   ask_gemini              - Send a free-form prompt to Gemini
- *   ask_gemini_command      - Run a custom .toml command by name
  *   ask_gemini_cmd_<name>   - Dynamic tool per discovered custom command
  *
  * Architecture:
@@ -1453,38 +1451,6 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
   // Tool parameter schemas
   // ---------------------------------------------------------------------------
 
-  const AskGeminiParams = Type.Object({
-    prompt: Type.String({
-      description: "The prompt to send to Gemini. Required unless resuming with session_id.",
-    }),
-    new_session: Type.Optional(
-      Type.Boolean({
-        description: "Start a new Gemini session instead of resuming the current one",
-        default: false,
-      }),
-    ),
-    session_id: Type.Optional(
-      Type.String({
-        description:
-          "Resume an existing Gemini session by its ID. Mutually exclusive with new_session.",
-      }),
-    ),
-  });
-
-  type AskGeminiParamsType = Static<typeof AskGeminiParams>;
-
-  const AskGeminiCommandParams = Type.Object({
-    command_name: Type.String({
-      description: "Name of the custom Gemini .toml command (e.g. 'reviewer', 'git:commit')",
-    }),
-    args: Type.Optional(Type.String({ description: "Arguments to pass to the command" })),
-    new_session: Type.Optional(
-      Type.Boolean({ description: "Start a new Gemini session", default: false }),
-    ),
-  });
-
-  type AskGeminiCommandParamsType = Static<typeof AskGeminiCommandParams>;
-
   const DynamicGeminiCmdParams = Type.Object({
     args: Type.Optional(Type.String({ description: "Arguments to pass to the command" })),
   });
@@ -1836,125 +1802,9 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
   });
 
   // ---------------------------------------------------------------------------
-  // Tool: ask_gemini
-  // ---------------------------------------------------------------------------
-
-  pi.registerTool({
-    name: "ask_gemini",
-    label: "Ask Gemini",
-    description:
-      "Send a prompt to Gemini via the ACP subprocess and return its answer.\n" +
-      "Use when the user explicitly wants Gemini to perform a free-form task.\n" +
-      "Prefer this tool's dynamic command variants when the user refers to a known custom command.\n\n" +
-      "Examples:\n" +
-      '  {"prompt":"Explain this function in detail"}' +
-      "\n" +
-      '  {"prompt":"Say hello","new_session":true}' +
-      "\n" +
-      '  {"prompt":"Continue the analysis","session_id":"abc123"}',
-    parameters: AskGeminiParams,
-
-    async execute(
-      _toolCallId: string,
-      rawParams: unknown,
-      signal: AbortSignal | undefined,
-      onUpdate: AgentToolUpdateCallback<GeminiToolDetails> | undefined,
-      ctx: ExtensionContext,
-    ): Promise<AgentToolResult<GeminiToolDetails>> {
-      const params = rawParams as AskGeminiParamsType;
-
-      if (params.new_session && params.session_id) {
-        throw new Error("'new_session' and 'session_id' are mutually exclusive.");
-      }
-
-      if (live?.running) {
-        throw new Error("Gemini ACP is already running. Please wait or use /gemini:stop.");
-      }
-
-      const opts: GeminiRunOpts = {
-        prompt: params.prompt,
-        forceNewSession: params.new_session,
-        explicitSessionId: params.session_id,
-        explicitResume: !!params.session_id,
-      };
-
-      const result = await performGeminiRun(opts, ctx, {
-        onUpdate,
-        signal,
-      });
-
-      return {
-        content: [{ type: "text", text: result.answer }],
-        details: {
-          sessionId: result.sessionId,
-          model: result.model,
-          stopReason: result.stopReason,
-          prompt: result.prompt,
-        },
-      };
-    },
-  });
-
-  // ---------------------------------------------------------------------------
-  // Tool: ask_gemini_command
-  // ---------------------------------------------------------------------------
-
-  pi.registerTool({
-    name: "ask_gemini_command",
-    label: "Ask Gemini Command",
-    description:
-      "Run a custom Gemini .toml command by name and return its answer.\n" +
-      "Use when the user refers to a custom Gemini command that does not have a dedicated dynamic tool.\n" +
-      "Resolves commands from .gemini/commands/ and ~/.gemini/commands/.\n\n" +
-      "Examples:\n" +
-      '  {"command_name":"reviewer","args":"src/main.ts"}' +
-      "\n" +
-      '  {"command_name":"git:commit","args":"summarize changes"}',
-    parameters: AskGeminiCommandParams,
-
-    async execute(
-      _toolCallId: string,
-      rawParams: unknown,
-      signal: AbortSignal | undefined,
-      onUpdate: AgentToolUpdateCallback<GeminiToolDetails> | undefined,
-      ctx: ExtensionContext,
-    ): Promise<AgentToolResult<GeminiToolDetails>> {
-      const params = rawParams as AskGeminiCommandParamsType;
-
-      const expanded = resolveGeminiCommand(params.command_name, params.args || "", ctx.cwd);
-      if (!expanded) {
-        throw new Error(
-          `Gemini command not found: ${params.command_name}. ` +
-            `Looked in .gemini/commands/ and ~/.gemini/commands/.`,
-        );
-      }
-
-      if (live?.running) {
-        throw new Error("Gemini ACP is already running.");
-      }
-
-      const opts: GeminiRunOpts = {
-        prompt: expanded,
-        forceNewSession: params.new_session,
-      };
-
-      const result = await performGeminiRun(opts, ctx, {
-        onUpdate,
-        signal,
-      });
-
-      return {
-        content: [{ type: "text", text: result.answer }],
-        details: {
-          sessionId: result.sessionId,
-          model: result.model,
-          stopReason: result.stopReason,
-          commandName: params.command_name,
-          prompt: result.prompt,
-        },
-      };
-    },
-  });
+  // General ask_gemini tool is disabled by default.
+  // Use /gemini slash command or dynamic ask_gemini_cmd_<name> tools instead.
+  // To re-enable, set PI_ENABLE_ASK_GEMINI=1.
 
   // ---------------------------------------------------------------------------
   // Dynamic custom command discovery (slash commands + tools)
@@ -1968,7 +1818,7 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
    * E.g. "reviewer" -> "ask_gemini_cmd_reviewer", "git:commit" -> "ask_gemini_cmd_git_commit"
    */
   const commandNameToToolName = (cmdName: string): string => {
-    return `ask_gemini_cmd_${cmdName.replace(/:/g, "_")}`;
+    return `ask_gemini_cmd_${cmdName.replace(/[:\-]/g, "_")}`;
   };
 
   const discoverAndRegisterCustomCommands = (cwd: string) => {
