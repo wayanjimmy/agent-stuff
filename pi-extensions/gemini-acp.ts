@@ -1106,77 +1106,15 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
       return;
     }
 
-    const elapsed = Date.now() - live.startedAt;
-    const answerPreview = clipEnd(compactWhitespace(live.answer || ""), 240);
-    const thoughtPreview = clipEnd(compactWhitespace(live.thought || ""), 240);
-    const events = trimLines(live.events, 4);
-    const stderrPreview = summarizeStderr(client.getStderrTail());
+    const spinner = getSpinnerIcon(live.phase);
 
-    const loadingFrames = getLoadingFrames();
-    const spinner = loadingFrames[Math.floor(Date.now() / 120) % loadingFrames.length];
-
-    const phaseLabel =
-      live.phase === "completed"
-        ? "✓ completed"
-        : live.phase === "error"
-          ? "✗ error"
-          : `${spinner} ${describePhase(live.phase)}`;
-
-    const status =
-      live.phase === "completed"
-        ? `✓ Gemini ACP done • ${formatElapsed(elapsed)} • ${live.sessionId}`
-        : live.phase === "error"
-          ? `✗ Gemini ACP error • ${formatElapsed(elapsed)} • ${clipEnd(compactWhitespace(live.error || live.currentAction), 44)}`
-          : `${spinner} Gemini ACP ${describePhase(live.phase)} • ${formatElapsed(elapsed)} • ${clipEnd(compactWhitespace(live.currentAction), 52)}`;
-
-    const clip = (s: string, max = 72) => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
-    const detailWidth = 86;
-
-    const body = [
-      `Gemini ACP · ${live.sessionId !== "(starting)" ? clip(live.sessionId, 48) : "starting"}`,
-      `Status: ${phaseLabel} • ${formatElapsed(elapsed)}`,
-      `Action: ${clip(compactWhitespace(live.currentAction || "(starting)"), detailWidth)}`,
-    ];
-
-    if (live.model) {
-      body.push(`Model: ${clip(live.model, 40)}`);
-    }
-    if (live.stopReason) {
-      body.push(`Stop reason: ${clip(live.stopReason, 40)}`);
-    }
-
-    body.push(...formatSection("Prompt", live.prompt || "(resume only)", detailWidth, 2));
-
-    if (live.error) {
-      body.push(...formatSection("Error", live.error, detailWidth, 2));
-    } else if (answerPreview) {
-      body.push(...formatSection("Answer", answerPreview, detailWidth, 3));
-    } else if (thoughtPreview) {
-      body.push(...formatSection("Thinking", thoughtPreview, detailWidth, 3));
-    } else if (
-      live.phase === "waiting" ||
-      live.phase === "initializing" ||
-      live.phase === "authenticating"
-    ) {
-      body.push(...formatSection("Output", "waiting for model output", detailWidth, 1));
-    }
-
-    if (stderrPreview && (live.phase === "error" || !answerPreview)) {
-      body.push(...formatSection("stderr", stderrPreview, detailWidth, 1));
-    }
-
-    if (events.length) {
-      body.push("Recent:");
-      for (const event of events) {
-        body.push(`- ${clip(event, detailWidth)}`);
-      }
-    }
+    const status = buildMinimalStatus(live.phase, spinner);
 
     ctx.ui.setStatus(EXT_STATUS_KEY, status);
     ctx.ui.setWidget(EXT_WIDGET_KEY, () => ({
       invalidate() {},
       render(width: number): string[] {
-        return body.map((line) => truncateToWidth(line, Math.max(0, width)));
+        return renderGeminiWidgetBox(live!, width, spinner);
       },
     }));
   };
@@ -1512,6 +1450,7 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
       thought: "",
       thoughtStarted: false,
       events: [],
+      recentActions: [],
       running: true,
       phase: "starting",
       currentAction: "Launching Gemini ACP",
