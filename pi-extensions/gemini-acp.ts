@@ -1102,7 +1102,7 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
         hiddenParts.push("thought stream");
       }
       if (hiddenParts.length) {
-        text += `\n\n${dim(`(${hiddenParts.join(" · ")} · Ctrl+O to expand)`)}`;
+        text += `\n\n${dim(`(${hiddenParts.join(" · ")} · ctrl+o to expand)`)}`;
       }
 
       return new Text(text, 0, 0);
