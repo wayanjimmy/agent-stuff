@@ -1,5 +1,5 @@
 /**
- * Gemini ACP Extension
+ * gemini extension
  *
  * Slash commands:
  *   /gemini <prompt>                    - Run prompt in current/resumed session
@@ -68,7 +68,7 @@ type JsonRpcIncomingRequest = {
   params?: any;
 };
 
-type GeminiState = {
+type geminiState = {
   currentSessionId?: string;
   sessions: Record<string, { lastUsedAt: number; cwd: string; model?: string }>;
 };
@@ -86,7 +86,7 @@ type LivePhase =
   | "completed"
   | "error";
 
-type GeminiToolDetails = {
+type geminiToolDetails = {
   sessionId?: string;
   phase?: LivePhase;
   model?: string;
@@ -112,7 +112,7 @@ type LiveRun = {
   stopReason?: string;
   error?: string;
   lastEventMessage?: string;
-  onUpdate?: AgentToolUpdateCallback<GeminiToolDetails>;
+  onUpdate?: AgentToolUpdateCallback<geminiToolDetails>;
   _lastToolUpdate?: number;
 };
 
@@ -123,7 +123,7 @@ type PermissionOption = {
   title?: string;
   label?: string;
 };
-type GeminiLaunchSpec = { command: string; args: string[] };
+type geminiLaunchSpec = { command: string; args: string[] };
 type ClientActivity = { phase: LivePhase; message: string };
 
 class AcpClient {
@@ -169,10 +169,10 @@ class AcpClient {
 
     this.emitActivity("initializing", "Initializing ACP handshake");
     await this.initialize();
-    this.emitActivity("authenticating", "Authenticating Gemini session");
+    this.emitActivity("authenticating", "Authenticating gemini session");
     await this.authenticateIfConfigured();
     this.ready = true;
-    this.emitActivity("waiting", "Gemini ACP client is ready");
+    this.emitActivity("waiting", "gemini client is ready");
   }
 
   async ensureSession(
@@ -185,14 +185,14 @@ class AcpClient {
     if (sessionId) {
       if (!this.loadedSessions.has(sessionId)) {
         try {
-          this.emitActivity("loading-session", `Loading Gemini session ${sessionId}`);
+          this.emitActivity("loading-session", `Loading gemini session ${sessionId}`);
           await this.request(
             "session/load",
             { sessionId, cwd, mcpServers: [] },
             DEFAULT_TIMEOUT_MS,
           );
           this.loadedSessions.add(sessionId);
-          this.emitActivity("waiting", `Loaded Gemini session ${sessionId}`);
+          this.emitActivity("waiting", `Loaded gemini session ${sessionId}`);
           return sessionId;
         } catch (err) {
           if (options?.explicitResume) {
@@ -202,17 +202,17 @@ class AcpClient {
           }
           this.emitActivity(
             "creating-session",
-            `Could not load ${sessionId}; creating a new Gemini session`,
+            `Could not load ${sessionId}; creating a new gemini session`,
           );
           // Automatic resume path: fall through to creating a new session.
         }
       } else {
-        this.emitActivity("waiting", `Using already loaded Gemini session ${sessionId}`);
+        this.emitActivity("waiting", `Using already loaded gemini session ${sessionId}`);
         return sessionId;
       }
     }
 
-    this.emitActivity("creating-session", "Creating a new Gemini session");
+    this.emitActivity("creating-session", "Creating a new gemini session");
     const created = (await this.request(
       "session/new",
       { cwd, mcpServers: [] },
@@ -224,12 +224,12 @@ class AcpClient {
       throw new Error("ACP newSession did not return a sessionId");
     }
     this.loadedSessions.add(created.sessionId);
-    this.emitActivity("waiting", `Created Gemini session ${created.sessionId}`);
+    this.emitActivity("waiting", `Created gemini session ${created.sessionId}`);
     return created.sessionId;
   }
 
   async prompt(sessionId: string, text: string): Promise<{ stopReason?: string; _meta?: any }> {
-    this.emitActivity("sending-prompt", `Sending prompt to Gemini session ${sessionId}`);
+    this.emitActivity("sending-prompt", `Sending prompt to gemini session ${sessionId}`);
     const result = (await this.request(
       "session/prompt",
       {
@@ -243,7 +243,7 @@ class AcpClient {
   }
 
   async cancel(sessionId: string): Promise<void> {
-    this.emitActivity("cancelling", `Cancelling Gemini session ${sessionId}`);
+    this.emitActivity("cancelling", `Cancelling gemini session ${sessionId}`);
     await this.notify("session/cancel", { sessionId });
   }
 
@@ -251,7 +251,7 @@ class AcpClient {
     if (this.proc && !this.proc.killed) {
       this.terminateProcess(this.proc);
     }
-    this.teardown(new Error("Gemini ACP process stopped"));
+    this.teardown(new Error("gemini process stopped"));
   }
 
   getStderrTail(): string {
@@ -266,7 +266,7 @@ class AcpClient {
 
   private spawnProcess(cwd: string): void {
     const bin = process.env.GEMINI_BIN || "gemini";
-    const launch = getGeminiLaunchSpec(bin);
+    const launch = getgeminiLaunchSpec(bin);
     this.emitActivity("starting", `Launching ${launch.command} ${launch.args.join(" ")}`);
 
     const proc = spawn(launch.command, launch.args, {
@@ -307,7 +307,7 @@ class AcpClient {
 
     proc.on("exit", (code, signal) => {
       this.teardown(
-        new Error(`Gemini ACP exited (code=${code ?? "null"}, signal=${signal ?? "null"})`),
+        new Error(`gemini exited (code=${code ?? "null"}, signal=${signal ?? "null"})`),
       );
     });
 
@@ -435,7 +435,7 @@ class AcpClient {
         return;
       }
 
-      // Prefer existing Gemini CLI OAuth session when no API key is provided.
+      // Prefer existing gemini CLI OAuth session when no API key is provided.
       await this.request("authenticate", { methodId: "oauth-personal" }, DEFAULT_TIMEOUT_MS);
     } catch {
       // Non-fatal: session/new will surface a clearer auth error if this fails.
@@ -448,7 +448,7 @@ class AcpClient {
     timeoutMs = DEFAULT_TIMEOUT_MS,
   ): Promise<unknown> {
     if (!this.proc || this.proc.killed || !this.proc.stdin.writable) {
-      throw new Error("Gemini ACP process is not available");
+      throw new Error("gemini process is not available");
     }
 
     const id = this.nextId++;
@@ -491,11 +491,11 @@ class AcpClient {
   }
 }
 
-function restoreState(ctx: any): GeminiState {
-  const state: GeminiState = { sessions: {} };
+function restoreState(ctx: any): geminiState {
+  const state: geminiState = { sessions: {} };
   for (const entry of ctx.sessionManager.getEntries()) {
     if (entry.type !== "custom" || entry.customType !== STATE_ENTRY_TYPE) continue;
-    const data = entry.data as GeminiState | undefined;
+    const data = entry.data as geminiState | undefined;
     if (data && typeof data === "object") {
       state.currentSessionId = data.currentSessionId;
       state.sessions = data.sessions || {};
@@ -713,7 +713,7 @@ function pushRecentAction(live: LiveRun, message: string): void {
 }
 
 /** Main widget entry: returns full string[] for the bordered box. */
-function renderGeminiWidgetBox(live: LiveRun, width: number, spinner: string): string[] {
+function rendergeminiWidgetBox(live: LiveRun, width: number, spinner: string): string[] {
 	// Narrow-width fallback
 	if (width < 20) {
 		const elapsed = formatElapsed(Date.now() - live.startedAt);
@@ -727,24 +727,22 @@ function renderGeminiWidgetBox(live: LiveRun, width: number, spinner: string): s
 
 	lines.push(renderBoxTop(title, elapsed, width));
 
+	// Always show bullet list with actions for better visibility
+	const actions = live.recentActions;
+	if (actions.length > 0) {
+		const shown = actions.slice(-3);
+		for (const action of shown) {
+			lines.push(renderBoxRow(`- ${action}`, width));
+		}
+	} else if (live.currentAction) {
+		// Fallback: show currentAction as a single bullet
+		lines.push(renderBoxRow(`- ${compactWhitespace(live.currentAction)}`, width));
+	}
+
+	// Show current phase in dim if we're in a starting phase
 	if (STARTING_PHASES.has(live.phase)) {
-		// Starting mode: single row with spinner + phase
 		const phaseLabel = `${spinner} ${describePhase(live.phase)}`;
 		lines.push(renderBoxRow(`${DIM}${phaseLabel}${RESET}`, width));
-	} else {
-		// Working/streaming mode: header row + bullet list
-		lines.push(renderBoxRow("gemini", width));
-
-		const actions = live.recentActions;
-		if (actions.length > 0) {
-			const shown = actions.slice(-3);
-			for (const action of shown) {
-				lines.push(renderBoxRow(`- ${action}`, width));
-			}
-		} else if (live.currentAction) {
-			// Fallback: show currentAction as a single bullet
-			lines.push(renderBoxRow(`- ${compactWhitespace(live.currentAction)}`, width));
-		}
 	}
 
 	lines.push(renderBoxBottom(width));
@@ -752,16 +750,16 @@ function renderGeminiWidgetBox(live: LiveRun, width: number, spinner: string): s
 }
 
 // ---------------------------------------------------------------------------
-// Gemini custom command (.toml) resolution
+// gemini custom command (.toml) resolution
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve a Gemini custom command by name.
+ * Resolve a gemini custom command by name.
  * Looks in project `.gemini/commands/` first, then user `~/.gemini/commands/`.
  * Namespacing: "git:commit" -> `commands/git/commit.toml`.
  * Returns the expanded prompt text with `{{args}}` replaced, or undefined.
  */
-function resolveGeminiCommand(name: string, args: string, cwd: string): string | undefined {
+function resolvegeminiCommand(name: string, args: string, cwd: string): string | undefined {
   const candidates = buildCommandPaths(name, cwd);
   for (const filePath of candidates) {
     if (!existsSync(filePath)) continue;
@@ -769,7 +767,7 @@ function resolveGeminiCommand(name: string, args: string, cwd: string): string |
       const raw = readFileSync(filePath, "utf8");
       const prompt = extractTomlPrompt(raw);
       if (!prompt) continue;
-      return expandGeminiCommandPrompt(prompt, args);
+      return expandgeminiCommandPrompt(prompt, args);
     } catch {
       // Skip unreadable files.
     }
@@ -810,11 +808,11 @@ function extractTomlPrompt(tomlSource: string): string | undefined {
 }
 
 /**
- * Expand `{{args}}` placeholder in a Gemini command prompt.
+ * Expand `{{args}}` placeholder in a gemini command prompt.
  * If the prompt contains `{{args}}`, replace it with the user's args.
- * Otherwise, append args after two newlines (Gemini default behavior).
+ * Otherwise, append args after two newlines (gemini default behavior).
  */
-function expandGeminiCommandPrompt(prompt: string, args: string): string {
+function expandgeminiCommandPrompt(prompt: string, args: string): string {
   if (prompt.includes("{{args}}")) {
     return prompt.replace(/\{\{args}}/g, () => args);
   }
@@ -828,7 +826,7 @@ function expandGeminiCommandPrompt(prompt: string, args: string): string {
  * Scan `.gemini/commands/` directories (project and home) for `.toml` files
  * and return their logical command names (e.g. "git:commit" for `git/commit.toml`).
  */
-function discoverGeminiCommandNames(cwd: string): string[] {
+function discovergeminiCommandNames(cwd: string): string[] {
   const dirs = [join(cwd, ".gemini", "commands"), join(homedir(), ".gemini", "commands")];
 
   const seen = new Set<string>();
@@ -947,11 +945,11 @@ function quoteCmdArg(value: string): string {
   return `"${value.replace(/"/g, '""')}"`;
 }
 
-export function getGeminiLaunchSpec(
+export function getgeminiLaunchSpec(
   bin: string,
   platform = process.platform,
   comspec = process.env.ComSpec || "cmd.exe",
-): GeminiLaunchSpec {
+): geminiLaunchSpec {
   if (platform !== "win32") {
     return { command: bin, args: ["--acp"] };
   }
@@ -1022,7 +1020,7 @@ function shortSessionId(id: string): string {
 }
 
 /** Build the standard header line: icon + toolTitle + dim metadata. */
-function buildGeminiHeader(
+function buildgeminiHeader(
   details: { sessionId?: string; model?: string; stopReason?: string; phase?: string },
   theme: Theme,
 ): string {
@@ -1042,7 +1040,7 @@ function buildGeminiHeader(
 
 export default function geminiAcpExtension(pi: ExtensionAPI) {
   const client = new AcpClient(pi);
-  let state: GeminiState = { sessions: {} };
+  let state: geminiState = { sessions: {} };
   let live: LiveRun | null = null;
   let liveCtx: any | null = null;
   let liveTicker: ReturnType<typeof setInterval> | null = null;
@@ -1071,7 +1069,7 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
     }
 
     const dim = (s: string) => theme.fg("dim", s);
-    const header = buildGeminiHeader(details, theme);
+    const header = buildgeminiHeader(details, theme);
 
     // --- Collapsed view ---
     if (!expanded) {
@@ -1173,6 +1171,7 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
     if (!live) return;
     live.phase = phase;
     live.currentAction = action;
+    pushRecentAction(live, action);
     if (options?.log !== false) {
       pushLiveEvent(action);
     }
@@ -1194,7 +1193,7 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
     ctx.ui.setWidget(EXT_WIDGET_KEY, () => ({
       invalidate() {},
       render(width: number): string[] {
-        return renderGeminiWidgetBox(live!, width, spinner);
+        return rendergeminiWidgetBox(live!, width, spinner);
       },
     }));
   };
@@ -1202,7 +1201,7 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
   const cancelLiveRun = async (ctx: any, source: "command" | "escape") => {
     if (!live?.running) {
       if (source === "command") {
-        ctx.ui.notify("No Gemini run in progress", "info");
+        ctx.ui.notify("No gemini run in progress", "info");
       }
       return;
     }
@@ -1224,7 +1223,7 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
         client.stop();
       }
       ctx.ui.notify(
-        source === "escape" ? "Sent cancel to Gemini ACP via Esc" : "Sent cancel to Gemini ACP",
+        source === "escape" ? "Sent cancel to gemini via Esc" : "Sent cancel to gemini",
         "warning",
       );
     } catch (err) {
@@ -1319,7 +1318,7 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
       );
       publishUiState("streaming", live.sessionId);
     } else if (updateType === "available_commands_update") {
-      pushLiveEvent("Available Gemini commands updated");
+      pushLiveEvent("Available gemini commands updated");
     } else if (method === "requestPermission") {
       setLiveProgress("waiting", "Permission requested -> auto-approved (YOLO)");
     } else if (updateType && updateType !== "session/update") {
@@ -1346,12 +1345,12 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
           const targetCtx = liveCtx || ctx;
           if (live) {
             live.phase = "error";
-            live.currentAction = "Gemini ACP run failed during cancel";
+            live.currentAction = "gemini run failed during cancel";
             live.error = message;
             pushLiveEvent(`Error: ${message}`);
             updateUi(targetCtx);
           }
-          targetCtx.ui.notify(`Gemini ACP error: ${message}`, "error");
+          targetCtx.ui.notify(`gemini error: ${message}`, "error");
         });
         return { consume: true };
       });
@@ -1399,7 +1398,7 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
     pi.sendMessage(
       {
         customType: "gemini-acp",
-        content: `### Gemini ACP Status\n\n${status}${recentEvents ? `\n\n### Recent events\n\n${recentEvents}` : ""}${stderr ? `\n\n### stderr (tail)\n\n\`\`\`\n${stderr}\n\`\`\`` : ""}`,
+        content: `### gemini status\n\n${status}${recentEvents ? `\n\n### recent events\n\n${recentEvents}` : ""}${stderr ? `\n\n### stderr (tail)\n\n\`\`\`\n${stderr}\n\`\`\`` : ""}`,
         display: true,
       },
       { triggerTurn: false },
@@ -1418,21 +1417,21 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
     pi.sendMessage(
       {
         customType: "gemini-acp",
-        content: `### Gemini Sessions\n\n${sessions || "(none)"}`,
+        content: `### gemini sessions\n\n${sessions || "(none)"}`,
         display: true,
       },
       { triggerTurn: false },
     );
   };
 
-  type GeminiRunOpts = {
+  type geminiRunOpts = {
     prompt?: string;
     forceNewSession?: boolean;
     explicitSessionId?: string;
     explicitResume?: boolean;
   };
 
-  type GeminiRunResult = {
+  type geminiRunResult = {
     sessionId: string;
     prompt: string;
     answer: string;
@@ -1442,8 +1441,8 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
     stopReason?: string;
   };
 
-  type GeminiRunHooks = {
-    onUpdate?: AgentToolUpdateCallback<GeminiToolDetails>;
+  type geminiRunHooks = {
+    onUpdate?: AgentToolUpdateCallback<geminiToolDetails>;
     signal?: AbortSignal;
   };
 
@@ -1451,29 +1450,29 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
   // Tool parameter schemas
   // ---------------------------------------------------------------------------
 
-  const DynamicGeminiCmdParams = Type.Object({
+  const dynamicGeminiCmdParams = Type.Object({
     args: Type.Optional(Type.String({ description: "Arguments to pass to the command" })),
   });
 
-  type DynamicGeminiCmdParamsType = Static<typeof DynamicGeminiCmdParams>;
+  type dynamicGeminiCmdParamsType = Static<typeof dynamicGeminiCmdParams>;
 
   // ---------------------------------------------------------------------------
   // Shared run logic (no Pi messages)
   // ---------------------------------------------------------------------------
 
   /**
-   * Core Gemini ACP execution. Runs the prompt through the ACP client,
+   * Core gemini execution. Runs the prompt through the ACP client,
    * tracks live state, and returns a structured result.
    * Does NOT send Pi messages — callers handle result delivery.
    */
-  const performGeminiRun = async (
-    opts: GeminiRunOpts,
+  const performgeminiRun = async (
+    opts: geminiRunOpts,
     ctx: any,
-    hooks?: GeminiRunHooks,
-  ): Promise<GeminiRunResult> => {
-    // Concurrency guard — only one Gemini run at a time
+    hooks?: geminiRunHooks,
+  ): Promise<geminiRunResult> => {
+    // Concurrency guard — only one gemini run at a time
     if (live?.running) {
-      throw new Error("Gemini ACP is already running. Please wait or use /gemini:stop.");
+      throw new Error("gemini is already running. Please wait or use /gemini:stop.");
     }
 
     const promptText = opts.prompt;
@@ -1492,16 +1491,17 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
       recentActions: [],
       running: true,
       phase: "starting",
-      currentAction: "Launching Gemini ACP",
+      currentAction: "launching gemini",
       onUpdate: hooks?.onUpdate,
     };
-    pushLiveEvent("Launching Gemini ACP");
+    pushRecentAction(live, "launching gemini");
+    pushLiveEvent("launching gemini");
     startLiveTicker();
     publishUiState("waiting", live.sessionId);
     updateUi(ctx);
 
     hooks?.onUpdate?.({
-      content: [{ type: "text", text: "Starting Gemini ACP..." }],
+      content: [{ type: "text", text: "starting gemini..." }],
       details: { phase: "starting" },
     });
 
@@ -1542,7 +1542,7 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
 
       if (live) {
         live.sessionId = sessionId;
-        setLiveProgress("waiting", `Gemini session ready: ${sessionId}`);
+        setLiveProgress("waiting", `gemini session ready: ${sessionId}`);
       }
 
       hooks?.onUpdate?.({
@@ -1564,13 +1564,13 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
       }
 
       if (live) {
-        setLiveProgress("waiting", "Waiting for Gemini response");
+        setLiveProgress("waiting", "Waiting for gemini response");
       }
       publishUiState("waiting", sessionId);
       updateUi(ctx);
 
       hooks?.onUpdate?.({
-        content: [{ type: "text", text: "Waiting for Gemini response..." }],
+        content: [{ type: "text", text: "Waiting for gemini response..." }],
         details: { sessionId, phase: "sending-prompt" },
       });
 
@@ -1583,7 +1583,7 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
       if (live) {
         live.running = false;
         live.phase = "completed";
-        live.currentAction = "Gemini run completed";
+        live.currentAction = "gemini run completed";
         live.stopReason = result?.stopReason;
         if (usedModel) {
           live.model = usedModel;
@@ -1635,14 +1635,14 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
   // Slash-command run wrapper (sends Pi messages)
   // ---------------------------------------------------------------------------
 
-  const executeGeminiRun = async (opts: GeminiRunOpts, ctx: any) => {
+  const executegeminiRun = async (opts: geminiRunOpts, ctx: any) => {
     if (ctx.isIdle && typeof ctx.isIdle === "function" && !ctx.isIdle()) {
       ctx.ui.notify("Pi is currently busy. Wait for current turn to finish.", "warning");
       return;
     }
 
     if (live?.running) {
-      ctx.ui.notify("Gemini ACP is already running. Please wait or use /gemini:stop.", "warning");
+      ctx.ui.notify("gemini is already running. Please wait or use /gemini:stop.", "warning");
       return;
     }
 
@@ -1653,24 +1653,19 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
     }
 
     try {
-      const runResult = await performGeminiRun(opts, ctx);
+      const runResult = await performgeminiRun(opts, ctx);
 
       // Resume-only (no prompt was sent)
       if (!promptText) {
-        ctx.ui.notify(`Resumed Gemini session ${runResult.sessionId}`, "success");
+        ctx.ui.notify(`Resumed gemini session ${runResult.sessionId}`, "success");
         return;
       }
 
-      // Send visible display message
-      let displayContent = `### Gemini (${runResult.sessionId})\n\n**Prompt**\n\n${promptText}\n\n**Answer**\n\n${runResult.answer}`;
-      if (runResult.thought) {
-        displayContent += `\n\n<details><summary>Thought stream</summary>\n\n${runResult.thought}\n\n</details>`;
-      }
-
+      // Send visible display message (renderer builds the view from details)
       pi.sendMessage(
         {
           customType: "gemini-acp",
-          content: displayContent,
+          content: "", // Renderer builds display from details
           display: true,
           details: {
             sessionId: runResult.sessionId,
@@ -1687,7 +1682,7 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
       );
 
       // Send hidden context message to steer the model
-      const contextContent = `[Gemini ACP completed] Gemini already executed this task${runResult.model ? ` (${runResult.model})` : ""}. Do NOT re-run it. Treat the Gemini output below as background context only.\n\nYour next visible response must be brief and should NOT summarize, restate, analyze, or transform the Gemini result. Instead, tell the user the Gemini result is ready and ask what they want to do with it next.\n\nOriginal task:\n${promptText}\n\nGemini result:\n=== GEMINI OUTPUT START ===\n${runResult.answer}\n=== GEMINI OUTPUT END ===`;
+      const contextContent = `[gemini completed] gemini already executed this task${runResult.model ? ` (${runResult.model})` : ""}. Do NOT re-run it. Treat the gemini output below as background context only.\n\nYour next visible response must be brief and should NOT summarize, restate, analyze, or transform the gemini result. Instead, tell the user the gemini result is ready and ask what they want to do with it next.\n\nOriginal task:\n${promptText}\n\ngemini result:\n=== gemini output start ===\n${runResult.answer}\n=== gemini output end ===`;
 
       pi.sendMessage(
         {
@@ -1699,24 +1694,24 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
       );
     } catch (err) {
       ctx.ui.notify(
-        `Gemini ACP error: ${err instanceof Error ? err.message : String(err)}`,
+        `gemini error: ${err instanceof Error ? err.message : String(err)}`,
         "error",
       );
     }
   };
 
   const runCustomCommandByName = async (name: string, rawArgs: string, ctx: any) => {
-    const expanded = resolveGeminiCommand(name, rawArgs, ctx.cwd);
+    const expanded = resolvegeminiCommand(name, rawArgs, ctx.cwd);
     if (!expanded) {
       ctx.ui.notify(
-        `Gemini command not found: ${name}\nLooked in .gemini/commands/ and ~/.gemini/commands/`,
+        `gemini command not found: ${name}\nLooked in .gemini/commands/ and ~/.gemini/commands/`,
         "error",
       );
       return;
     }
 
-    ctx.ui.notify(`Resolved Gemini command /${name} — sending expanded prompt via ACP`, "info");
-    await executeGeminiRun({ prompt: expanded }, ctx);
+    ctx.ui.notify(`Resolved gemini command /${name} — sending expanded prompt via ACP`, "info");
+    await executegeminiRun({ prompt: expanded }, ctx);
   };
 
   // ---------------------------------------------------------------------------
@@ -1724,7 +1719,7 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
   // ---------------------------------------------------------------------------
 
   pi.registerCommand("gemini", {
-    description: "Run Gemini via ACP with a prompt",
+    description: "Run gemini via ACP with a prompt",
     async handler(args: string, ctx: any) {
       const raw = args.trim();
       if (!raw) {
@@ -1735,20 +1730,20 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
         return;
       }
 
-      await executeGeminiRun({ prompt: raw }, ctx);
+      await executegeminiRun({ prompt: raw }, ctx);
     },
   });
 
   pi.registerCommand("gemini:new", {
-    description: "Start a new Gemini session with a prompt",
+    description: "Start a new gemini session with a prompt",
     async handler(args: string, ctx: any) {
       const prompt = args.trim() || undefined;
-      await executeGeminiRun({ prompt, forceNewSession: true }, ctx);
+      await executegeminiRun({ prompt, forceNewSession: true }, ctx);
     },
   });
 
   pi.registerCommand("gemini:resume", {
-    description: "Resume an existing Gemini session (/gemini:resume <sessionId> [prompt])",
+    description: "Resume an existing gemini session (/gemini:resume <sessionId> [prompt])",
     async handler(args: string, ctx: any) {
       const parts = args.trim().split(/\s+/);
       const sessionIdArg = parts[0];
@@ -1757,7 +1752,7 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
         return;
       }
       const prompt = parts.slice(1).join(" ").trim() || undefined;
-      await executeGeminiRun(
+      await executegeminiRun(
         { prompt, explicitSessionId: sessionIdArg, explicitResume: true },
         ctx,
       );
@@ -1765,34 +1760,34 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
   });
 
   pi.registerCommand("gemini:stop", {
-    description: "Cancel the current Gemini run",
+    description: "Cancel the current gemini run",
     async handler(_args: string, ctx: any) {
       await cancelLiveRun(ctx, "command");
     },
   });
 
   pi.registerCommand("gemini:status", {
-    description: "Show Gemini ACP process/session status",
+    description: "Show gemini process/session status",
     async handler(_args: string, ctx: any) {
       showStatus();
     },
   });
 
   pi.registerCommand("gemini:sessions", {
-    description: "List known Gemini sessions",
+    description: "List known gemini sessions",
     async handler(_args: string, ctx: any) {
       showSessions();
     },
   });
 
   pi.registerCommand("gemini:cmd", {
-    description: "Run a custom Gemini .toml command (/gemini:cmd <name> [args...])",
+    description: "Run a custom gemini .toml command (/gemini:cmd <name> [args...])",
     async handler(args: string, ctx: any) {
       const parts = args.trim().split(/\s+/);
       const cmdName = parts[0];
       if (!cmdName) {
         ctx.ui.notify(
-          "Usage: /gemini:cmd <command-name> [args...]\nResolves a custom Gemini .toml command and runs it via ACP.",
+          "Usage: /gemini:cmd <command-name> [args...]\nResolves a custom gemini .toml command and runs it via ACP.",
           "info",
         );
         return;
@@ -1814,7 +1809,7 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
   const registeredDynamicTools = new Map<string, string>(); // toolName -> commandName
 
   /**
-   * Normalize a Gemini command name to a safe tool identifier.
+   * Normalize a gemini command name to a safe tool identifier.
    * E.g. "reviewer" -> "ask_gemini_cmd_reviewer", "git:commit" -> "ask_gemini_cmd_git_commit"
    */
   const commandNameToToolName = (cmdName: string): string => {
@@ -1826,14 +1821,14 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
     // pi.registerCommand / pi.registerTool will overwrite with fresh definitions.
     registeredDynamicCommands.clear();
     registeredDynamicTools.clear();
-    const names = discoverGeminiCommandNames(cwd);
+    const names = discovergeminiCommandNames(cwd);
     for (const name of names) {
       // Register slash command
       const commandName = `gemini:cmd:${name}`;
       if (!registeredDynamicCommands.has(commandName)) {
         registeredDynamicCommands.add(commandName);
         pi.registerCommand(commandName, {
-          description: `Run custom Gemini command "${name}"`,
+          description: `Run custom gemini command "${name}"`,
           async handler(args: string, ctx: any) {
             await runCustomCommandByName(name, args.trim(), ctx);
           },
@@ -1865,39 +1860,60 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
         const capturedName = name;
         const capturedDesc = commandDescription;
         const toolDesc =
-          `Run the "${capturedName}" Gemini custom command via ACP.\n` +
+          `Run the "${capturedName}" gemini custom command via ACP.\n` +
           (capturedDesc ? `${capturedDesc}\n` : "") +
-          "Use when the user asks Gemini to perform this specific command.\n" +
+          "Use when the user asks gemini to perform this specific command.\n" +
           "Pass user arguments via the 'args' parameter.";
 
         pi.registerTool({
           name: toolName,
-          label: `Gemini: ${name}`,
+          label: `gemini: ${name}`,
           description: toolDesc,
-          parameters: DynamicGeminiCmdParams,
+          parameters: dynamicGeminiCmdParams,
 
           async execute(
             _toolCallId: string,
             rawParams: unknown,
             signal: AbortSignal | undefined,
-            onUpdate: AgentToolUpdateCallback<GeminiToolDetails> | undefined,
+            onUpdate: AgentToolUpdateCallback<geminiToolDetails> | undefined,
             ctx: ExtensionContext,
-          ): Promise<AgentToolResult<GeminiToolDetails>> {
-            const params = rawParams as DynamicGeminiCmdParamsType;
+          ): Promise<AgentToolResult<geminiToolDetails>> {
+            const params = rawParams as dynamicGeminiCmdParamsType;
 
-            const expanded = resolveGeminiCommand(capturedName, params.args || "", ctx.cwd);
+            const expanded = resolvegeminiCommand(capturedName, params.args || "", ctx.cwd);
             if (!expanded) {
-              throw new Error(`Gemini command not found: ${capturedName}`);
+              throw new Error(`gemini command not found: ${capturedName}`);
             }
 
             if (live?.running) {
-              throw new Error("Gemini ACP is already running.");
+              throw new Error("gemini is already running.");
             }
 
-            const result = await performGeminiRun({ prompt: expanded }, ctx, {
+            const result = await performgeminiRun({ prompt: expanded }, ctx, {
               onUpdate,
               signal,
             });
+
+            // Send visible display message (renderer builds the view from details)
+            pi.sendMessage(
+              {
+                customType: "gemini-acp",
+                content: "", // Renderer builds display from details
+                display: true,
+                details: {
+                  sessionId: result.sessionId,
+                  prompt: result.prompt,
+                  answer: result.answer,
+                  thought: result.thought,
+                  events: result.events,
+                  model: result.model,
+                  stopReason: result.stopReason,
+                  phase: "completed",
+                  commandName: capturedName,
+                },
+              },
+              { triggerTurn: false },
+            );
 
             return {
               content: [{ type: "text", text: result.answer }],
