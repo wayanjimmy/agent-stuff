@@ -1129,7 +1129,7 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
     // Timeline (dimmed)
     if (details.events?.length) {
       container.addChild(new Spacer(1));
-      const timelineLines = details.events.map((e) => dim(`│ ${e}`)).join("\n");
+      const timelineLines = details.events.map((e) => dim(`• ${e}`)).join("\n");
       container.addChild(new Text(`${dim("Timeline:")}\n${timelineLines}`, 0, 0));
     }
 
@@ -1143,7 +1143,7 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
       }
       const thoughtLines = thoughtBody
         .split("\n")
-        .map((l: string) => `│ ${l}`)
+        .map((l: string) => `• ${l}`)
         .join("\n");
       container.addChild(new Text(`${dim("Thought stream:")}\n${dim(thoughtLines)}`, 0, 0));
     }
