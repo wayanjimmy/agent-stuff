@@ -127,17 +127,10 @@ function formatSectionsCollapsed(
 // TUI rendering helpers (shared)
 // ---------------------------------------------------------------------------
 
-function statusIcon(status: string, theme: Theme): string {
-  switch (status) {
-    case "done":
-      return theme.fg("success", "✓");
-    case "error":
-      return theme.fg("error", "✗");
-    case "aborted":
-      return theme.fg("warning", "◼");
-    default:
-      return theme.fg("warning", "⏳");
-  }
+/** Status icon: ✦ while running, ◇ when done. */
+function statusIcon(status: string): string {
+  if (status !== "done" && status !== "error" && status !== "aborted") return "✦";
+  return "◇";
 }
 
 function buildResultContainer(header: string, markdown: string, _theme: Theme): Container {
@@ -375,15 +368,13 @@ function renderWebSearchResult(
   }
 
   const status = opts.isPartial ? "running" : state.status;
-  const icon = statusIcon(status, theme);
+  const icon = statusIcon(status);
   const totalResults = state.results.length;
   const responseTimeInfo = state.responseTime ? ` · ${state.responseTime.toFixed(2)}s` : "";
 
   const header =
-    icon +
-    " " +
-    theme.fg("toolTitle", theme.bold("web_search")) +
-    theme.fg("dim", `${totalResults} result${totalResults === 1 ? "" : "s"}${responseTimeInfo}`);
+    `${icon} ${theme.fg("toolTitle", theme.bold("web_search"))}` +
+    theme.fg("dim", ` · ${totalResults} result${totalResults === 1 ? "" : "s"}${responseTimeInfo}`);
 
   if (status === "running") {
     return new Text(`${header}\n\n${theme.fg("dim", "Searching Tavily…")}`, 0, 0);
@@ -675,16 +666,14 @@ function renderWebExtractResult(
   }
 
   const status = opts.isPartial ? "running" : state.status;
-  const icon = statusIcon(status, theme);
+  const icon = statusIcon(status);
   const successCount = state.results.length;
   const failedCount = state.failed.length;
   const responseTimeInfo = state.responseTime ? ` · ${state.responseTime.toFixed(2)}s` : "";
 
   const header =
-    icon +
-    " " +
-    theme.fg("toolTitle", theme.bold("web_extract")) +
-    theme.fg("dim", `${successCount} succeeded${failedCount > 0 ? `, ${failedCount} failed` : ""}${responseTimeInfo}`);
+    `${icon} ${theme.fg("toolTitle", theme.bold("web_extract"))}` +
+    theme.fg("dim", ` · ${successCount} succeeded${failedCount > 0 ? `, ${failedCount} failed` : ""}${responseTimeInfo}`);
 
   if (status === "running") {
     return new Text(`${header}\n\n${theme.fg("dim", "Extracting content with Tavily…")}`, 0, 0);
@@ -988,15 +977,13 @@ function renderWebCrawlResult(
   }
 
   const status = opts.isPartial ? "running" : state.status;
-  const icon = statusIcon(status, theme);
+  const icon = statusIcon(status);
   const pageCount = state.results.length;
   const responseTimeInfo = state.responseTime ? ` · ${state.responseTime.toFixed(2)}s` : "";
 
   const header =
-    icon +
-    " " +
-    theme.fg("toolTitle", theme.bold("web_crawl")) +
-    theme.fg("dim", `${pageCount} page${pageCount === 1 ? "" : "s"}${responseTimeInfo}`);
+    `${icon} ${theme.fg("toolTitle", theme.bold("web_crawl"))}` +
+    theme.fg("dim", ` · ${pageCount} page${pageCount === 1 ? "" : "s"}${responseTimeInfo}`);
 
   if (status === "running") {
     return new Text(`${header}\n\n${theme.fg("dim", "Crawling site with Tavily…")}`, 0, 0);
