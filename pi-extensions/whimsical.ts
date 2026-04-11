@@ -2,8 +2,8 @@
  * Whimsical Working Messages Extension
  *
  * Replaces the default "Working..." message with random fun phrases
- * on each turn. Inspired by mitsuhiko's whimsical extension and
- * gemini-cli's witty loading phrases.
+ * on each turn. Inspired by mitsuhiko's whimsical extension,
+ * gemini-cli's witty loading phrases, and Claude Code's spinner verbs.
  *
  * Usage:
  *   pi -e pi-extensions/whimsical.ts
@@ -12,38 +12,70 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 
 const messages = [
-  // Single word vibes
-  "Combobulating...",
+  // Vibes (the best single-word verbs)
   "Vibing...",
-  "Spelunking...",
-  "Transmuting...",
-  "Pontificating...",
-  "Cogitating...",
   "Noodling...",
   "Percolating...",
-  "Ruminating...",
-  "Simmering...",
   "Marinating...",
-  "Fermenting...",
   "Brewing...",
   "Contemplating...",
   "Meandering...",
   "Moseying...",
-  "Bamboozling...",
   "Discombobulating...",
   "Recombobulating...",
-  "Flummoxing...",
   "Pirouetting...",
-  "Schmoozing...",
-  "Effervescing...",
-  "Scintillating...",
-  "Improvising...",
   "Frolicking...",
   "Galumphing...",
   "Wibbling...",
-  "Wobbling...",
-  "Squelching...",
-  "Bustling...",
+  "Spelunking...",
+  "Simmering...",
+  "Cogitating...",
+  "Pontificating...",
+  "Transmuting...",
+  "Ruminating...",
+  "Fermenting...",
+  "Effervescing...",
+  "Scintillating...",
+  "Improvising...",
+  "Manifesting...",
+  "Pondering...",
+  "Mulling...",
+  "Musing...",
+  "Perambulating...",
+  "Nesting...",
+  "Incubating...",
+  "Germinating...",
+  "Propagating...",
+  "Synthesizing...",
+  "Cultivating...",
+  "Coalescing...",
+  "Crystallizing...",
+  "Sublimating...",
+  "Unfurling...",
+  "Unravelling...",
+  "Wrangling...",
+  "Tinkering...",
+  "Grooving...",
+  "Boogieing...",
+  "Moonwalking...",
+  "Gallivanting...",
+  "Lollygagging...",
+  "Tomfoolering...",
+  "Hullaballooing...",
+  "Skedaddling...",
+  "Schlepping...",
+  "Canoodling...",
+  "Boondoggling...",
+  "Flibbertigibbeting...",
+  "Clauding...",
+  "Dilly-dallying...",
+  "Fiddle-faddling...",
+  "Bamboozling...",
+  "Flummoxing...",
+  "Finagling...",
+  "Befuddling...",
+  "Bloviating...",
+  "Shenaniganing...",
 
   // Programmer humor
   "Reticulating splines...",
@@ -63,6 +95,11 @@ const messages = [
   "Dividing by zero… just kidding!",
   "Constructing additional pylons...",
   "That's not a bug, it's an undocumented feature...",
+  "Gitifying...",
+  "Git commit -m 'fix stuff'...",
+  "Waiting for webpack...",
+  "npm install (please don't break)...",
+  "It works on my machine...",
 
   // Pop culture
   "Calibrating the flux capacitor...",
@@ -78,6 +115,12 @@ const messages = [
   "Blowing on the cartridge...",
   "Loading… Do a barrel roll!",
   "Communing with the machine spirit...",
+  "Houston, we have a solution...",
+  "Warp speed engaged...",
+  "Activating Ludicrous Speed...",
+  "Han shot first...",
+  "Winter is coming...",
+  "You shall not parse!",
 
   // Cooking metaphors
   "Sautéing the syntax errors...",
@@ -89,6 +132,9 @@ const messages = [
   "Letting the dough rise...",
   "Barbecuing the bugs...",
   "Roasting the race conditions...",
+  "Julienning the JSON...",
+  "Kneading the nodes...",
+  "Proofing the protocol...",
 
   // Whimsical
   "Consulting the digital spirits...",
@@ -116,6 +162,10 @@ const messages = [
   "Dusting off the neurons...",
   "Watering the logic tree...",
   "Herding digital cats...",
+  "Wishing upon a star...",
+  "Searching for meaning...",
+  "Calculating the meaning of life... (it's 42)",
+  "Thinking really hard...",
 ];
 
 function pickRandom(): string {

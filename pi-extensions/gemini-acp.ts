@@ -1333,7 +1333,7 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
 
   pi.on("session_start", async (_event, ctx) => {
     state = restoreState(ctx);
-    ctx.ui.setStatus(EXT_STATUS_KEY, "Gemini ACP idle");
+    ctx.ui.setStatus(EXT_STATUS_KEY, "◇ gemini");
     ctx.ui.setWidget(EXT_WIDGET_KEY, []);
 
     terminalInputCleanup?.();
