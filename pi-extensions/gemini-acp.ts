@@ -40,7 +40,7 @@ import type {
   AgentToolUpdateCallback,
 } from "@mariozechner/pi-coding-agent";
 import { Type, type Static } from "@sinclair/typebox";
-import { Text, truncateToWidth, isKeyRelease, matchesKey } from "@mariozechner/pi-tui";
+import { Text, truncateToWidth, visibleWidth, isKeyRelease, matchesKey } from "@mariozechner/pi-tui";
 
 const EXT_STATUS_KEY = "gemini-acp";
 const EXT_WIDGET_KEY = "gemini-acp";
@@ -95,6 +95,7 @@ type LiveRun = {
   thought: string;
   thoughtStarted: boolean;
   events: string[];
+	recentActions: string[];
   running: boolean;
   phase: LivePhase;
   currentAction: string;
@@ -609,6 +610,139 @@ function formatSection(label: string, value: string, width: number, maxLines: nu
 }
 
 // ---------------------------------------------------------------------------
+// Bordered box widget helpers
+// ---------------------------------------------------------------------------
+
+const ACCENT = "\x1b[38;2;77;163;255m";
+const DIM = "\x1b[38;2;120;120;140m";
+const RESET = "\x1b[0m";
+
+/** Wrap text in soft-blue accent color. */
+function accent(text: string): string {
+	return `${ACCENT}${text}${RESET}`;
+}
+
+/** Pad text with spaces based on visibleWidth (ANSI-safe). */
+function padVisible(text: string, targetWidth: number): string {
+	const vw = visibleWidth(text);
+	const gap = Math.max(0, targetWidth - vw);
+	return text + " ".repeat(gap);
+}
+
+/** Truncate text to fit within maxWidth, ANSI-safe. */
+function fitVisible(text: string, maxWidth: number): string {
+	return truncateToWidth(text, Math.max(0, maxWidth));
+}
+
+const STARTING_PHASES: ReadonlySet<LivePhase> = new Set([
+	"starting",
+	"initializing",
+	"authenticating",
+	"loading-session",
+	"creating-session",
+	"sending-prompt",
+]);
+
+/** Build top border: `╭─ title ───── elapsed ╮` */
+function renderBoxTop(title: string, elapsed: string, width: number): string {
+	const inner = width - 2; // subtract corners
+	const elapsedStr = `${elapsed}`;
+	const minDashes = 2;
+	const titlePart = ` ${title} `;
+	const elapsedPart = ` ${elapsedStr} `;
+
+	// Measure visible widths (title/accent has ANSI codes)
+	const titleVw = visibleWidth(titlePart);
+	const elapsedVw = visibleWidth(elapsedPart);
+
+	const dashesAvailable = inner - titleVw - elapsedVw;
+	if (dashesAvailable < minDashes) {
+		// Degraded: just fill with dashes
+		return accent(`╭${"─".repeat(Math.max(0, inner))}╮`);
+	}
+
+	const leftDashes = Math.ceil(dashesAvailable / 2);
+	const rightDashes = dashesAvailable - leftDashes;
+
+	const left = "─".repeat(leftDashes);
+	const right = "─".repeat(rightDashes);
+
+	return accent(`╭${left}${titlePart}${right}${elapsedPart}╮`);
+}
+
+/** Build body row: `│  content...     │` with accent-colored borders. */
+function renderBoxRow(content: string, width: number): string {
+	const contentArea = width - 4; // │ + space + content + space + │
+	if (contentArea <= 0) {
+		return accent(`${"│".padEnd(Math.max(0, width - 1))}│`);
+	}
+	const fitted = fitVisible(content, contentArea);
+	const padded = padVisible(fitted, contentArea);
+	return `${accent("│")} ${padded} ${accent("│")}`;
+}
+
+/** Build bottom border: `╰─────────────────╯` */
+function renderBoxBottom(width: number): string {
+	const inner = Math.max(0, width - 2);
+	return accent(`╰${"─".repeat(inner)}╯`);
+}
+
+/** Push a cleaned-up action string onto recentActions (max 4, dedup consecutive). */
+function pushRecentAction(live: LiveRun, message: string): void {
+	let cleaned = compactWhitespace(message);
+	// Strip common prefixes for cleaner bullets
+	cleaned = cleaned.replace(/^Running tool:\s*/i, "");
+	if (!cleaned) return;
+
+	const last = live.recentActions[live.recentActions.length - 1];
+	if (last === cleaned) return; // dedup consecutive
+
+	live.recentActions.push(cleaned);
+	if (live.recentActions.length > 4) {
+		live.recentActions = live.recentActions.slice(-4);
+	}
+}
+
+/** Main widget entry: returns full string[] for the bordered box. */
+function renderGeminiWidgetBox(live: LiveRun, width: number, spinner: string): string[] {
+	// Narrow-width fallback
+	if (width < 20) {
+		const elapsed = formatElapsed(Date.now() - live.startedAt);
+		const label = buildPhaseLabel(live.phase, spinner);
+		return [fitVisible(`gemini ${elapsed} ${label}`, width)];
+	}
+
+	const elapsed = formatElapsed(Date.now() - live.startedAt);
+	const title = "gemini";
+	const lines: string[] = [];
+
+	lines.push(renderBoxTop(title, elapsed, width));
+
+	if (STARTING_PHASES.has(live.phase)) {
+		// Starting mode: single row with spinner + phase
+		const phaseLabel = `${spinner} ${describePhase(live.phase)}`;
+		lines.push(renderBoxRow(`${DIM}${phaseLabel}${RESET}`, width));
+	} else {
+		// Working/streaming mode: header row + bullet list
+		lines.push(renderBoxRow("gemini", width));
+
+		const actions = live.recentActions;
+		if (actions.length > 0) {
+			const shown = actions.slice(-3);
+			for (const action of shown) {
+				lines.push(renderBoxRow(`- ${action}`, width));
+			}
+		} else if (live.currentAction) {
+			// Fallback: show currentAction as a single bullet
+			lines.push(renderBoxRow(`- ${compactWhitespace(live.currentAction)}`, width));
+		}
+	}
+
+	lines.push(renderBoxBottom(width));
+	return lines;
+}
+
+// ---------------------------------------------------------------------------
 // Gemini custom command (.toml) resolution
 // ---------------------------------------------------------------------------
 
@@ -827,9 +961,39 @@ export function getGeminiLaunchSpec(
   };
 }
 
-// Match the same wave animation used by pi-extensions/custom-ui.ts footer.
-function getLoadingFrames(): string[] {
-  return ["∼", "≈", "≋", "≈"];
+// Spinner icon: ✦ when actively working, ◇ when idle/ready.
+function getSpinnerIcon(phase: LivePhase): string {
+	switch (phase) {
+		case "waiting":
+		case "streaming":
+		case "cancelling":
+		case "error":
+			return "✦";
+		default:
+			return "◇";
+	}
+}
+
+// Build phase label for widget display (not status bar)
+function buildPhaseLabel(phase: LivePhase, spinner: string): string {
+	if (phase === "completed") {
+		return "✓ completed";
+	}
+	if (phase === "error") {
+		return "✗ error";
+	}
+	return `${spinner} ${describePhase(phase)}`;
+}
+
+// Build minimal status bar text (Option 2 style)
+function buildMinimalStatus(phase: LivePhase, spinner: string): string {
+	if (phase === "completed") {
+		return "";
+	}
+	if (phase === "error") {
+		return "✗ gemini";
+	}
+	return `${spinner} gemini`;
 }
 
 export default function geminiAcpExtension(pi: ExtensionAPI) {
@@ -1892,4 +2056,640 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
     discoverAndRegisterCustomCommands(ctx.cwd);
   });
+||||||| BASE
+	const client = new AcpClient(pi);
+	let state: GeminiState = { sessions: {} };
+	let live: LiveRun | null = null;
+	let liveCtx: any | null = null;
+	let liveTicker: ReturnType<typeof setInterval> | null = null;
+	let terminalInputCleanup: (() => void) | null = null;
+
+	const publishUiState = (phase: "idle" | "waiting" | "streaming", sessionId?: string) => {
+		pi.events.emit("gemini-acp:ui-state", { phase, sessionId, at: Date.now() });
+	};
+
+	pi.registerMessageRenderer("gemini-acp", (message, { expanded }, theme) => {
+		const details = (message.details || {}) as {
+			sessionId?: string;
+			prompt?: string;
+			answer?: string;
+			thought?: string;
+			events?: string[];
+			model?: string;
+			stopReason?: string;
+		};
+
+		if (!details.sessionId) {
+			return new Text(String(message.content || ""), 0, 0);
+		}
+
+		const dim = (s: string) => theme.fg("dim", s);
+
+		// Subtle header – dim bracketed text instead of accent color
+		const header = dim(`[ Gemini ACP · ${details.sessionId} ]`);
+
+		// Prompt as subtle "You:" label
+		const prompt = details.prompt ? `\n${theme.bold("You:")} ${details.prompt.trim()}` : "";
+
+		// Answer as main content with "Gemini:" label
+		const answer = details.answer ? `\n${theme.bold("Gemini:")}\n${details.answer.trim()}` : "";
+
+		// Timeline – dimmed blockquote style to subordinate meta-information
+		let timeline = "";
+		if (Array.isArray(details.events) && details.events.length) {
+			const visible = expanded ? details.events : details.events.slice(-10);
+			const lines = visible.map((e) => dim(`│ ${e}`)).join("\n");
+			timeline = `\n\n${dim("Timeline:")}\n${lines}`;
+			if (!expanded && details.events.length > visible.length) {
+				timeline += `\n${dim(`│ … ${details.events.length - visible.length} more (expand to view all)`)}`;
+			}
+		}
+
+		// Thought stream – dimmed blockquote style
+		const thought = details.thought
+			? `\n\n${dim("Thought stream:")}\n${dim(expanded ? details.thought.trim().split("\n").map((l: string) => `│ ${l}`).join("\n") : details.thought.trim().slice(0, 1200).split("\n").map((l: string) => `│ ${l}`).join("\n") + (details.thought.trim().length > 1200 ? "\n│ …" : ""))}`
+			: "";
+
+		// Metadata (model, stop reason) – moved to the end, dimmed
+		const meta: string[] = [];
+		if (details.model) meta.push(`Model: ${details.model}`);
+		if (details.stopReason) meta.push(`Stop: ${details.stopReason}`);
+		const metaStr = meta.length ? `\n\n${dim(meta.join(" · "))}` : "";
+
+		// No background color, no extra padding – blend with native messages
+		return new Text(`${header}${prompt}${answer}${timeline}${thought}${metaStr}`, 0, 0);
+	});
+
+	const persistState = () => {
+		pi.appendEntry(STATE_ENTRY_TYPE, state);
+	};
+
+	const pushLiveEvent = (message: string) => {
+		if (!live) return;
+		const normalized = compactWhitespace(message);
+		if (!normalized || live.lastEventMessage === normalized) return;
+
+		live.lastEventMessage = normalized;
+		live.events = trimLines(
+			[...live.events, `[${formatElapsed(Date.now() - live.startedAt)}] ${normalized}`],
+			40,
+		);
+	};
+
+	const setLiveProgress = (phase: LivePhase, action: string, options?: { log?: boolean }) => {
+		if (!live) return;
+		live.phase = phase;
+		live.currentAction = action;
+		if (options?.log !== false) {
+			pushLiveEvent(action);
+		}
+	};
+
+	const updateUi = (ctx: any) => {
+		if (!ctx) return;
+		if (!live) {
+			ctx.ui.setStatus(EXT_STATUS_KEY, "");
+			ctx.ui.setWidget(EXT_WIDGET_KEY, []);
+			return;
+		}
+
+		const elapsed = Date.now() - live.startedAt;
+		const answerPreview = clipEnd(compactWhitespace(live.answer || ""), 240);
+		const thoughtPreview = clipEnd(compactWhitespace(live.thought || ""), 240);
+		const events = trimLines(live.events, 4);
+		const stderrPreview = summarizeStderr(client.getStderrTail());
+
+		const loadingFrames = getLoadingFrames();
+		const spinner = loadingFrames[Math.floor(Date.now() / 120) % loadingFrames.length];
+
+		const phaseLabel =
+			live.phase === "completed"
+				? "✓ completed"
+				: live.phase === "error"
+					? "✗ error"
+					: `${spinner} ${describePhase(live.phase)}`;
+
+		const status =
+			live.phase === "completed"
+				? `✓ Gemini ACP done • ${formatElapsed(elapsed)} • ${live.sessionId}`
+				: live.phase === "error"
+					? `✗ Gemini ACP error • ${formatElapsed(elapsed)} • ${clipEnd(compactWhitespace(live.error || live.currentAction), 44)}`
+					: `${spinner} Gemini ACP ${describePhase(live.phase)} • ${formatElapsed(elapsed)} • ${clipEnd(compactWhitespace(live.currentAction), 52)}`;
+
+		const clip = (s: string, max = 72) => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
+		const detailWidth = 86;
+
+		const body = [
+			`Gemini ACP · ${live.sessionId !== "(starting)" ? clip(live.sessionId, 48) : "starting"}`,
+			`Status: ${phaseLabel} • ${formatElapsed(elapsed)}`,
+			`Action: ${clip(compactWhitespace(live.currentAction || "(starting)"), detailWidth)}`,
+		];
+
+		if (live.model) {
+			body.push(`Model: ${clip(live.model, 40)}`);
+		}
+		if (live.stopReason) {
+			body.push(`Stop reason: ${clip(live.stopReason, 40)}`);
+		}
+
+		body.push(...formatSection("Prompt", live.prompt || "(resume only)", detailWidth, 2));
+
+		if (live.error) {
+			body.push(...formatSection("Error", live.error, detailWidth, 2));
+		} else if (answerPreview) {
+			body.push(...formatSection("Answer", answerPreview, detailWidth, 3));
+		} else if (thoughtPreview) {
+			body.push(...formatSection("Thinking", thoughtPreview, detailWidth, 3));
+		} else if (live.phase === "waiting" || live.phase === "initializing" || live.phase === "authenticating") {
+			body.push(...formatSection("Output", "waiting for model output", detailWidth, 1));
+		}
+
+		if (stderrPreview && (live.phase === "error" || !answerPreview)) {
+			body.push(...formatSection("stderr", stderrPreview, detailWidth, 1));
+		}
+
+		if (events.length) {
+			body.push("Recent:");
+			for (const event of events) {
+				body.push(`- ${clip(event, detailWidth)}`);
+			}
+		}
+
+		ctx.ui.setStatus(EXT_STATUS_KEY, status);
+		ctx.ui.setWidget(EXT_WIDGET_KEY, () => ({
+			invalidate() {},
+			render(width: number): string[] {
+				return body.map((line) => truncateToWidth(line, Math.max(0, width)));
+			},
+		}));
+	};
+
+	const cancelLiveRun = async (ctx: any, source: "command" | "escape") => {
+		if (!live?.running) {
+			if (source === "command") {
+				ctx.ui.notify("No Gemini run in progress", "info");
+			}
+			return;
+		}
+
+		if (live.phase === "cancelling") {
+			return;
+		}
+
+		const currentSessionId = live.sessionId;
+		const currentAction = source === "escape" ? "Cancel requested (Esc)" : "Cancel requested";
+		live.running = false;
+		setLiveProgress("cancelling", currentAction);
+		updateUi(ctx);
+
+		try {
+			if (currentSessionId && currentSessionId !== "(starting)" && client.isRunning()) {
+				await client.cancel(currentSessionId);
+			} else {
+				client.stop();
+			}
+			ctx.ui.notify(
+				source === "escape" ? "Sent cancel to Gemini ACP via Esc" : "Sent cancel to Gemini ACP",
+				"warning",
+			);
+		} catch (err) {
+			client.stop();
+			throw err;
+		}
+	};
+
+	const startLiveTicker = () => {
+		if (liveTicker) clearInterval(liveTicker);
+		liveTicker = setInterval(() => {
+			if (live && liveCtx) updateUi(liveCtx);
+		}, 60);
+	};
+
+	const stopLiveTicker = () => {
+		if (liveTicker) {
+			clearInterval(liveTicker);
+			liveTicker = null;
+		}
+	};
+
+	const unsubscribeActivity = client.onActivity((activity) => {
+		if (!live) return;
+		setLiveProgress(activity.phase, activity.message);
+		if (liveCtx) updateUi(liveCtx);
+	});
+
+	const unsubscribeNotifications = client.onNotification((method, params) => {
+		if (!live) return;
+
+		const p = params ?? {};
+		const sid = p.sessionId;
+		if (sid && sid !== live.sessionId) return;
+
+		const update = p.update ?? p;
+		const updateType = update?.sessionUpdate || update?.type || method;
+
+		if (updateType === "agent_message_chunk") {
+			const chunk = extractText(update?.content ?? update);
+			if (chunk !== "") {
+				if (!live.answerStarted) {
+					live.answerStarted = true;
+					setLiveProgress("streaming", "Streaming model answer");
+					publishUiState("streaming", live.sessionId);
+				}
+				live.answer += chunk;
+			}
+		} else if (updateType === "agent_thought_chunk" || String(updateType).includes("thought")) {
+			const chunk = extractText(update?.content ?? update);
+			if (chunk) {
+				setLiveProgress("streaming", "Streaming model reasoning", { log: !live.thoughtStarted });
+				publishUiState("streaming", live.sessionId);
+				live.thought += chunk;
+				if (!live.thoughtStarted) {
+					live.thoughtStarted = true;
+					pushLiveEvent("Thought stream started");
+				}
+			}
+		} else if (updateType === "tool_call") {
+			const title = update?.toolCall?.title || update?.title || update?.toolName || "tool call";
+			setLiveProgress("streaming", `Running tool: ${title}`);
+			publishUiState("streaming", live.sessionId);
+		} else if (updateType === "tool_call_update") {
+			const toolStatus = update?.toolCall?.status || update?.status || "updated";
+			const title = update?.toolCall?.title || update?.title || update?.toolName;
+			setLiveProgress(
+				"streaming",
+				title ? `Tool update: ${title} -> ${toolStatus}` : `Tool update: ${toolStatus}`,
+			);
+			publishUiState("streaming", live.sessionId);
+		} else if (updateType === "available_commands_update") {
+			pushLiveEvent("Available Gemini commands updated");
+		} else if (method === "requestPermission") {
+			setLiveProgress("waiting", "Permission requested -> auto-approved (YOLO)");
+		} else if (updateType && updateType !== "session/update") {
+			pushLiveEvent(`Update received: ${updateType}`);
+		}
+
+		if (liveCtx) updateUi(liveCtx);
+	});
+
+	pi.on("session_start", async (_event, ctx) => {
+		state = restoreState(ctx);
+		ctx.ui.setStatus(EXT_STATUS_KEY, "Gemini ACP idle");
+		ctx.ui.setWidget(EXT_WIDGET_KEY, []);
+
+		terminalInputCleanup?.();
+		if (typeof ctx.ui.onTerminalInput === "function") {
+			terminalInputCleanup = ctx.ui.onTerminalInput((data: string) => {
+				if (!live?.running) return undefined;
+				if (isKeyRelease(data)) return undefined;
+				if (!matchesKey(data, "escape")) return undefined;
+
+				void cancelLiveRun(liveCtx || ctx, "escape").catch((err) => {
+					const message = err instanceof Error ? err.message : String(err);
+					const targetCtx = liveCtx || ctx;
+					if (live) {
+						live.phase = "error";
+						live.currentAction = "Gemini ACP run failed during cancel";
+						live.error = message;
+						pushLiveEvent(`Error: ${message}`);
+						updateUi(targetCtx);
+					}
+					targetCtx.ui.notify(`Gemini ACP error: ${message}`, "error");
+				});
+				return { consume: true };
+			});
+		}
+	});
+
+	pi.on("session_shutdown", async () => {
+		stopLiveTicker();
+		terminalInputCleanup?.();
+		terminalInputCleanup = null;
+		client.stop();
+	});
+
+	// ---------------------------------------------------------------------------
+	// Extracted command helpers
+	// ---------------------------------------------------------------------------
+
+	const showStatus = () => {
+		const status = [
+			`process: ${client.isRunning() ? "running" : "stopped"}`,
+			`current session: ${state.currentSessionId ?? "(none)"}`,
+			`permissions: YOLO auto-approve`,
+			`known sessions: ${Object.keys(state.sessions).length}`,
+			live ? `active run: ${live.running ? "running" : "done"}` : "active run: none",
+			...(live
+				? [
+					`phase: ${describePhase(live.phase)}`,
+					`current action: ${live.currentAction}`,
+					...(live.model ? [`model: ${live.model}`] : []),
+					...(live.stopReason ? [`stop reason: ${live.stopReason}`] : []),
+					`recent events: ${trimLines(live.events, 8).length}`,
+				]
+				: []),
+		].join("\n");
+
+		const recentEvents = live ? trimLines(live.events, 8).map((event) => `- ${event}`).join("\n") : "";
+
+		const stderr = client.getStderrTail();
+		pi.sendMessage(
+			{
+				customType: "gemini-acp",
+				content: `### Gemini ACP Status\n\n${status}${recentEvents ? `\n\n### Recent events\n\n${recentEvents}` : ""}${stderr ? `\n\n### stderr (tail)\n\n\`\`\`\n${stderr}\n\`\`\`` : ""}`,
+				display: true,
+			},
+			{ triggerTurn: false },
+		);
+	};
+
+	const showSessions = () => {
+		const sessions = Object.entries(state.sessions)
+			.sort((a, b) => b[1].lastUsedAt - a[1].lastUsedAt)
+			.map(
+				([id, meta]) =>
+					`- ${id}  (${new Date(meta.lastUsedAt).toLocaleString()})  cwd=${meta.cwd}${meta.model ? `  model=${meta.model}` : ""}`,
+			)
+			.join("\n");
+
+		pi.sendMessage(
+			{
+				customType: "gemini-acp",
+				content: `### Gemini Sessions\n\n${sessions || "(none)"}`,
+				display: true,
+			},
+			{ triggerTurn: false },
+		);
+	};
+
+	type GeminiRunOpts = {
+		prompt?: string;
+		forceNewSession?: boolean;
+		explicitSessionId?: string;
+		explicitResume?: boolean;
+	};
+
+	const executeGeminiRun = async (opts: GeminiRunOpts, ctx: any) => {
+		if (ctx.isIdle && typeof ctx.isIdle === "function" && !ctx.isIdle()) {
+			ctx.ui.notify("Pi is currently busy. Wait for current turn to finish.", "warning");
+			return;
+		}
+
+		if (live?.running) {
+			ctx.ui.notify("Gemini ACP is already running. Please wait or use /gemini:stop.", "warning");
+			return;
+		}
+
+		const promptText = opts.prompt;
+		const sessionIdArg = opts.explicitSessionId;
+
+		if (!promptText && !opts.explicitResume) {
+			ctx.ui.notify("Prompt cannot be empty", "error");
+			return;
+		}
+
+		try {
+			liveCtx = ctx;
+			live = {
+				sessionId: sessionIdArg || state.currentSessionId || "(starting)",
+				startedAt: Date.now(),
+				prompt: promptText || "(resume only)",
+				answer: "",
+				answerStarted: false,
+				thought: "",
+				thoughtStarted: false,
+				events: [],
+				running: true,
+				phase: "starting",
+				currentAction: "Launching Gemini ACP",
+			};
+			pushLiveEvent("Launching Gemini ACP");
+			startLiveTicker();
+			publishUiState("waiting", live.sessionId);
+			updateUi(ctx);
+
+			let sessionId: string;
+
+			if (opts.forceNewSession) {
+				sessionId = await client.ensureSession(ctx.cwd);
+			} else if (opts.explicitResume) {
+				sessionId = await client.ensureSession(ctx.cwd, sessionIdArg, { explicitResume: true });
+			} else {
+				sessionId = await client.ensureSession(ctx.cwd, state.currentSessionId);
+			}
+
+			state.currentSessionId = sessionId;
+			state.sessions[sessionId] = { lastUsedAt: Date.now(), cwd: ctx.cwd };
+			persistState();
+
+			if (live) {
+				live.sessionId = sessionId;
+				setLiveProgress("waiting", `Gemini session ready: ${sessionId}`);
+			}
+
+			if (!promptText) {
+				ctx.ui.notify(`Resumed Gemini session ${sessionId}`, "success");
+				return;
+			}
+
+			if (live) {
+				setLiveProgress("waiting", "Waiting for Gemini response");
+			}
+			publishUiState("waiting", sessionId);
+			updateUi(ctx);
+
+			const result = await client.prompt(sessionId, promptText);
+			const usedModel = extractModelFromPromptResult(result);
+
+			live.running = false;
+			live.phase = "completed";
+			live.currentAction = "Gemini run completed";
+			live.stopReason = result?.stopReason;
+			if (usedModel) {
+				live.model = usedModel;
+				pushLiveEvent(`Model used: ${usedModel}`);
+			}
+			pushLiveEvent(`Prompt completed${result?.stopReason ? ` (${result.stopReason})` : ""}`);
+			state.sessions[sessionId] = { lastUsedAt: Date.now(), cwd: ctx.cwd, model: usedModel };
+			persistState();
+			stopLiveTicker();
+			publishUiState("idle", sessionId);
+			updateUi(ctx);
+
+			const answer = live.answer.trim() || "(no streamed text returned)";
+			const thought = live.thought.trim();
+
+			const model = state.sessions[sessionId]?.model;
+
+			let displayContent = `### Gemini (${sessionId})\n\n**Prompt**\n\n${promptText}\n\n**Answer**\n\n${answer}`;
+			if (thought) {
+				displayContent += `\n\n<details><summary>Thought stream</summary>\n\n${thought}\n\n</details>`;
+			}
+
+			pi.sendMessage(
+				{
+					customType: "gemini-acp",
+					content: displayContent,
+					display: true,
+					details: {
+						sessionId,
+						prompt: promptText,
+						answer,
+						thought,
+						events: live.events,
+						model,
+						stopReason: live.stopReason,
+					},
+				},
+				{ triggerTurn: false },
+			);
+
+			const contextContent = `[Gemini ACP completed] Gemini already executed this task${model ? ` (${model})` : ""}. Do NOT re-run it. Treat the Gemini output below as background context only.
+
+Your next visible response must be brief and should NOT summarize, restate, analyze, or transform the Gemini result. Instead, tell the user the Gemini result is ready and ask what they want to do with it next.
+
+Original task:
+${promptText}
+
+Gemini result:
+=== GEMINI OUTPUT START ===
+${answer}
+=== GEMINI OUTPUT END ===`;
+
+			pi.sendMessage(
+				{
+					customType: "gemini-acp-context",
+					content: contextContent,
+					display: false,
+				},
+				{ triggerTurn: true },
+			);
+		} catch (err) {
+			if (live) {
+				live.running = false;
+				pushLiveEvent(`Error: ${err instanceof Error ? err.message : String(err)}`);
+			}
+			ctx.ui.notify(`Gemini ACP error: ${err instanceof Error ? err.message : String(err)}`, "error");
+		} finally {
+			const lastSessionId = live?.sessionId;
+			stopLiveTicker();
+			publishUiState("idle", lastSessionId);
+			live = null;
+			liveCtx = null;
+			updateUi(ctx);
+		}
+	};
+
+	const runCustomCommandByName = async (name: string, rawArgs: string, ctx: any) => {
+		const expanded = resolveGeminiCommand(name, rawArgs, ctx.cwd);
+		if (!expanded) {
+			ctx.ui.notify(`Gemini command not found: ${name}\nLooked in .gemini/commands/ and ~/.gemini/commands/`, "error");
+			return;
+		}
+
+		ctx.ui.notify(`Resolved Gemini command /${name} — sending expanded prompt via ACP`, "info");
+		await executeGeminiRun({ prompt: expanded }, ctx);
+	};
+
+	// ---------------------------------------------------------------------------
+	// Colon-namespaced commands
+	// ---------------------------------------------------------------------------
+
+	pi.registerCommand("gemini", {
+		description: "Run Gemini via ACP with a prompt",
+		async handler(args: string, ctx: any) {
+			const raw = args.trim();
+			if (!raw) {
+				ctx.ui.notify(
+					"Usage: /gemini <prompt>\nSee also: /gemini:new, /gemini:resume, /gemini:cmd, /gemini:stop, /gemini:status, /gemini:sessions",
+					"info",
+				);
+				return;
+			}
+
+			await executeGeminiRun({ prompt: raw }, ctx);
+		},
+	});
+
+	pi.registerCommand("gemini:new", {
+		description: "Start a new Gemini session with a prompt",
+		async handler(args: string, ctx: any) {
+			const prompt = args.trim() || undefined;
+			await executeGeminiRun({ prompt, forceNewSession: true }, ctx);
+		},
+	});
+
+	pi.registerCommand("gemini:resume", {
+		description: "Resume an existing Gemini session (/gemini:resume <sessionId> [prompt])",
+		async handler(args: string, ctx: any) {
+			const parts = args.trim().split(/\s+/);
+			const sessionIdArg = parts[0];
+			if (!sessionIdArg) {
+				ctx.ui.notify("Usage: /gemini:resume <sessionId> [prompt]", "error");
+				return;
+			}
+			const prompt = parts.slice(1).join(" ").trim() || undefined;
+			await executeGeminiRun({ prompt, explicitSessionId: sessionIdArg, explicitResume: true }, ctx);
+		},
+	});
+
+	pi.registerCommand("gemini:stop", {
+		description: "Cancel the current Gemini run",
+		async handler(_args: string, ctx: any) {
+			await cancelLiveRun(ctx, "command");
+		},
+	});
+
+	pi.registerCommand("gemini:status", {
+		description: "Show Gemini ACP process/session status",
+		async handler(_args: string, ctx: any) {
+			showStatus();
+		},
+	});
+
+	pi.registerCommand("gemini:sessions", {
+		description: "List known Gemini sessions",
+		async handler(_args: string, ctx: any) {
+			showSessions();
+		},
+	});
+
+	pi.registerCommand("gemini:cmd", {
+		description: "Run a custom Gemini .toml command (/gemini:cmd <name> [args...])",
+		async handler(args: string, ctx: any) {
+			const parts = args.trim().split(/\s+/);
+			const cmdName = parts[0];
+			if (!cmdName) {
+				ctx.ui.notify("Usage: /gemini:cmd <command-name> [args...]\nResolves a custom Gemini .toml command and runs it via ACP.", "info");
+				return;
+			}
+			await runCustomCommandByName(cmdName, parts.slice(1).join(" "), ctx);
+		},
+	});
+
+	// ---------------------------------------------------------------------------
+	// Dynamic custom command discovery
+	// ---------------------------------------------------------------------------
+
+	const registeredDynamicCommands = new Set<string>();
+
+	const discoverAndRegisterCustomCommands = (cwd: string) => {
+		const names = discoverGeminiCommandNames(cwd);
+		for (const name of names) {
+			const commandName = `gemini:cmd:${name}`;
+			if (registeredDynamicCommands.has(commandName)) continue;
+			registeredDynamicCommands.add(commandName);
+			pi.registerCommand(commandName, {
+				description: `Run custom Gemini command "${name}"`,
+				async handler(args: string, ctx: any) {
+					await runCustomCommandByName(name, args.trim(), ctx);
+				},
+			});
+		}
+	};
+
+	// Re-discover on session start so new .toml files are picked up.
+	pi.on("session_start", async (_event, ctx) => {
+		discoverAndRegisterCustomCommands(ctx.cwd);
+	});
 }
