@@ -95,6 +95,14 @@ type geminiToolDetails = {
   prompt?: string;
 };
 
+type ToolCallInfo = {
+  id: string;
+  title: string;
+  status: string;
+  startTime: number;
+  endTime?: number;
+};
+
 type LiveRun = {
   sessionId: string;
   startedAt: number;
@@ -104,7 +112,8 @@ type LiveRun = {
   thought: string;
   thoughtStarted: boolean;
   events: string[];
-	recentActions: string[];
+  recentActions: string[];
+  toolCalls: ToolCallInfo[];
   running: boolean;
   phase: LivePhase;
   currentAction: string;
@@ -727,15 +736,29 @@ function rendergeminiWidgetBox(live: LiveRun, width: number, spinner: string): s
 
 	lines.push(renderBoxTop(title, elapsed, width));
 
-	// Always show bullet list with actions for better visibility
+	// Show tool calls timeline if available (up to 6)
+	if (live.toolCalls.length > 0) {
+		const elapsedMs = (ms: number) => formatElapsed(ms - live.startedAt);
+		const shownTools = live.toolCalls.slice(-6);
+		for (const tool of shownTools) {
+			const statusIcon = tool.status === "completed" ? "✓" : tool.status === "error" ? "✗" : "◇";
+			const timeInfo = tool.endTime
+				? `${elapsedMs(tool.startTime)} -> ${elapsedMs(tool.endTime)}`
+				: `${elapsedMs(tool.startTime)} ...`;
+			const toolLine = `${statusIcon} ${timeInfo}  ${tool.title}`;
+			lines.push(renderBoxRow(toolLine, width));
+		}
+	}
+
+	// Show recent actions (up to 4)
 	const actions = live.recentActions;
 	if (actions.length > 0) {
-		const shown = actions.slice(-3);
+		const shown = actions.slice(-4);
 		for (const action of shown) {
 			lines.push(renderBoxRow(`- ${action}`, width));
 		}
-	} else if (live.currentAction) {
-		// Fallback: show currentAction as a single bullet
+	} else if (live.currentAction && live.toolCalls.length === 0) {
+		// Fallback: show currentAction as a single bullet if no tools shown
 		lines.push(renderBoxRow(`- ${compactWhitespace(live.currentAction)}`, width));
 	}
 
@@ -779,6 +802,8 @@ function buildCommandPaths(name: string, cwd: string): string[] {
   if (!/^[a-zA-Z0-9_:-]+$/.test(name)) return []; // Prevent path traversal
   // Convert colon-namespace to path segments: "git:commit" -> ["git", "commit"]
   const segments = name.split(":");
+  // Explicitly reject path traversal attempts
+  if (segments.some(s => !s || s === "." || s === "..")) return [];
   const tomlFile = segments.join("/") + ".toml";
 
   // Project-level takes precedence.
@@ -945,6 +970,58 @@ function quoteCmdArg(value: string): string {
   return `"${value.replace(/"/g, '""')}"`;
 }
 
+/**
+ * Build the accumulated streaming output for tool progress display.
+ * Includes timeline of all tool calls with their status, thinking stream, and answer.
+ */
+function buildStreamingOutput(live: LiveRun): string {
+  const lines: string[] = [];
+  const elapsed = (ms: number) => formatElapsed(ms - live.startedAt);
+
+  // Timeline section
+  if (live.toolCalls.length > 0) {
+    lines.push("Timeline:");
+    for (const tool of live.toolCalls) {
+      const statusIcon = tool.status === "completed" ? "✓" : tool.status === "error" ? "✗" : "◇";
+      const timeInfo = tool.endTime
+        ? `${elapsed(tool.startTime)} -> ${elapsed(tool.endTime)}`
+        : `${elapsed(tool.startTime)} ...`;
+      lines.push(`  ${statusIcon} ${timeInfo}  ${tool.title}`);
+    }
+    lines.push("");
+  }
+
+  // Thinking section
+  if (live.thoughtStarted && live.thought.trim()) {
+    lines.push("Thinking:");
+    const thoughtLines = live.thought.trim().split("\n");
+    // Show last ~20 lines of thinking, with indicator if truncated
+    const maxThoughtLines = 20;
+    if (thoughtLines.length > maxThoughtLines) {
+      lines.push(`  ... (${thoughtLines.length - maxThoughtLines} lines hidden) ...`);
+      thoughtLines.slice(-maxThoughtLines).forEach(line => {
+        lines.push(`  ${line}`);
+      });
+    } else {
+      thoughtLines.forEach(line => {
+        lines.push(`  ${line}`);
+      });
+    }
+    lines.push("");
+  }
+
+  // Answer section
+  if (live.answerStarted && live.answer.trim()) {
+    lines.push("Answer:");
+    lines.push(live.answer);
+  } else if (live.answerStarted) {
+    lines.push("Answer:");
+    lines.push("  ...");
+  }
+
+  return lines.join("\n");
+}
+
 export function getgeminiLaunchSpec(
   bin: string,
   platform = process.platform,
@@ -1045,6 +1122,7 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
   let liveCtx: any | null = null;
   let liveTicker: ReturnType<typeof setInterval> | null = null;
   let terminalInputCleanup: (() => void) | null = null;
+  let toolCallCounter = 0; // Counter for unique tool IDs
 
   const publishUiState = (phase: "idle" | "waiting" | "streaming", sessionId?: string) => {
     pi.events.emit("gemini-acp:ui-state", { phase, sessionId, at: Date.now() });
@@ -1126,26 +1204,27 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
     const answerText = details.answer?.trim() || "(no response)";
     container.addChild(new Markdown(answerText, 0, 0, mdTheme));
 
-    // Timeline (dimmed)
+    // Timeline (dimmed, compact)
     if (details.events?.length) {
       container.addChild(new Spacer(1));
-      const timelineLines = details.events.map((e) => dim(`• ${e}`)).join("\n");
-      container.addChild(new Text(`${dim("Timeline:")}\n${timelineLines}`, 0, 0));
+      const lastEvents = details.events.slice(-6);
+      const timelineLines = lastEvents.map((e) => dim(`  ${e}`)).join("\n");
+      container.addChild(new Text(dim(timelineLines), 0, 0));
     }
 
-    // Thought stream (dimmed, capped at ~3000 chars)
+    // Thought stream (dimmed, capped at ~1500 chars, compact)
     if (details.thought) {
       container.addChild(new Spacer(1));
-      const cap = 3000;
+      const cap = 1500;
       let thoughtBody = details.thought.trim();
       if (thoughtBody.length > cap) {
-        thoughtBody = thoughtBody.slice(0, cap) + "\n…(truncated)";
+        thoughtBody = thoughtBody.slice(0, cap) + " …";
       }
       const thoughtLines = thoughtBody
         .split("\n")
-        .map((l: string) => `• ${l}`)
+        .map((l: string) => dim(`  ${l}`))
         .join("\n");
-      container.addChild(new Text(`${dim("Thought stream:")}\n${dim(thoughtLines)}`, 0, 0));
+      container.addChild(new Text(thoughtLines, 0, 0));
     }
 
     return container;
@@ -1157,13 +1236,27 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
 
   const pushLiveEvent = (message: string) => {
     if (!live) return;
-    const normalized = compactWhitespace(message);
+    let normalized = compactWhitespace(message);
     if (!normalized || live.lastEventMessage === normalized) return;
+
+    // Skip verbose/low-value events for cleaner timeline
+    const skipPatterns = [
+      /^launching gemini$/i,
+      /^initializing acp handshake$/i,
+      /^authenticating gemini session$/i,
+      /^gemini client is ready$/i,
+      /^waiting$/i,
+      /^available gemini commands updated$/i,
+    ];
+    if (skipPatterns.some(p => p.test(normalized))) return;
+
+    // Shorten session ID references (4faff5be-b784-4dd2-9cef-db1af8850b86 -> 4faff5be)
+    normalized = normalized.replace(/\b([a-f0-9]{8})-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\b/gi, "$1");
 
     live.lastEventMessage = normalized;
     live.events = trimLines(
-      [...live.events, `[${formatElapsed(Date.now() - live.startedAt)}] ${normalized}`],
-      40,
+      [...live.events, `${formatElapsed(Date.now() - live.startedAt)}  ${normalized}`],
+      20,
     );
   };
 
@@ -1271,12 +1364,12 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
           publishUiState("streaming", live.sessionId);
         }
         live.answer += chunk;
-        // Stream answer chunks to the active tool caller (throttled to ~5 updates/sec)
+        // Stream full accumulated output with timeline (throttled to ~5 updates/sec)
         const now = Date.now();
         if (!live._lastToolUpdate || now - live._lastToolUpdate > 200) {
           live._lastToolUpdate = now;
           live.onUpdate?.({
-            content: [{ type: "text", text: live.answer }],
+            content: [{ type: "text", text: buildStreamingOutput(live) }],
             details: { sessionId: live.sessionId, phase: "streaming" },
           });
         }
@@ -1291,32 +1384,61 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
           live.thoughtStarted = true;
           pushLiveEvent("Thought stream started");
         }
-        // Stream thought chunks to the active tool caller (throttled)
+        // Stream full accumulated output with timeline and thinking (throttled)
         const now = Date.now();
         if (!live._lastToolUpdate || now - live._lastToolUpdate > 200) {
           live._lastToolUpdate = now;
           live.onUpdate?.({
-            content: [{ type: "text", text: `[thinking] ${live.thought}` }],
+            content: [{ type: "text", text: buildStreamingOutput(live) }],
             details: { sessionId: live.sessionId, phase: "streaming" },
           });
         }
       }
     } else if (updateType === "tool_call") {
       const title = update?.toolCall?.title || update?.title || update?.toolName || "tool call";
+      const toolId = update?.toolCall?.id || update?.id || `tool-${Date.now()}-${toolCallCounter++}`;
       setLiveProgress("streaming", `Running tool: ${title}`);
       publishUiState("streaming", live.sessionId);
+      // Add tool to timeline
+      live.toolCalls.push({
+        id: toolId,
+        title,
+        status: "pending",
+        startTime: Date.now(),
+      });
+      // Stream full accumulated output with updated timeline
       live.onUpdate?.({
-        content: [{ type: "text", text: `[tool] ${title}` }],
+        content: [{ type: "text", text: buildStreamingOutput(live) }],
         details: { sessionId: live.sessionId, phase: "streaming" },
       });
     } else if (updateType === "tool_call_update") {
       const toolStatus = update?.toolCall?.status || update?.status || "updated";
       const title = update?.toolCall?.title || update?.title || update?.toolName;
+      const toolId = update?.toolCall?.id || update?.id;
       setLiveProgress(
         "streaming",
         title ? `Tool update: ${title} -> ${toolStatus}` : `Tool update: ${toolStatus}`,
       );
       publishUiState("streaming", live.sessionId);
+      // Update tool status in timeline
+      if (toolId) {
+        const tool = live.toolCalls.find(t => t.id === toolId);
+        if (tool) {
+          tool.status = toolStatus;
+          if (toolStatus === "completed" || toolStatus === "error") {
+            tool.endTime = Date.now();
+          }
+        }
+      } else if (title && live.toolCalls.length > 0) {
+        // Fallback: update most recent tool with matching title (iterate backwards)
+        const tool = [...live.toolCalls].reverse().find(t => t.title === title);
+        if (tool) {
+          tool.status = toolStatus;
+          if (toolStatus === "completed" || toolStatus === "error") {
+            tool.endTime = Date.now();
+          }
+        }
+      }
     } else if (updateType === "available_commands_update") {
       pushLiveEvent("Available gemini commands updated");
     } else if (method === "requestPermission") {
@@ -1489,6 +1611,7 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
       thoughtStarted: false,
       events: [],
       recentActions: [],
+      toolCalls: [],
       running: true,
       phase: "starting",
       currentAction: "launching gemini",
@@ -1501,7 +1624,7 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
     updateUi(ctx);
 
     hooks?.onUpdate?.({
-      content: [{ type: "text", text: "starting gemini..." }],
+      content: [{ type: "text", text: "Starting gemini...\n" }],
       details: { phase: "starting" },
     });
 
@@ -1546,7 +1669,7 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
       }
 
       hooks?.onUpdate?.({
-        content: [{ type: "text", text: `Session ready: ${sessionId}. Sending prompt...` }],
+        content: [{ type: "text", text: buildStreamingOutput(live) }],
         details: { sessionId, phase: "waiting" },
       });
 
@@ -1570,7 +1693,7 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
       updateUi(ctx);
 
       hooks?.onUpdate?.({
-        content: [{ type: "text", text: "Waiting for gemini response..." }],
+        content: [{ type: "text", text: buildStreamingOutput(live) }],
         details: { sessionId, phase: "sending-prompt" },
       });
 
@@ -1600,8 +1723,11 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
       const model = state.sessions[sessionId]?.model;
       const events = live?.events ?? [];
 
+      // Final update with complete timeline
+      live!.phase = "completed";
+      live!.running = false;
       hooks?.onUpdate?.({
-        content: [{ type: "text", text: answer }],
+        content: [{ type: "text", text: buildStreamingOutput(live!) }],
         details: { sessionId, phase: "completed", model, stopReason: result?.stopReason },
       });
 
