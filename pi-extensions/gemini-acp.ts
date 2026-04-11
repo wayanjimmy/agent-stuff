@@ -33,14 +33,16 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-  AgentToolResult,
-  AgentToolUpdateCallback,
+import {
+  getMarkdownTheme,
+  type ExtensionAPI,
+  type ExtensionContext,
+  type AgentToolResult,
+  type AgentToolUpdateCallback,
 } from "@mariozechner/pi-coding-agent";
+import type { Theme } from "@mariozechner/pi-coding-agent";
 import { Type, type Static } from "@sinclair/typebox";
-import { Text, truncateToWidth, visibleWidth, isKeyRelease, matchesKey } from "@mariozechner/pi-tui";
+import { Container, Markdown, Spacer, Text, truncateToWidth, visibleWidth, isKeyRelease, matchesKey } from "@mariozechner/pi-tui";
 
 const EXT_STATUS_KEY = "gemini-acp";
 const EXT_WIDGET_KEY = "gemini-acp";
@@ -85,6 +87,15 @@ type LivePhase =
   | "cancelling"
   | "completed"
   | "error";
+
+type GeminiToolDetails = {
+  sessionId?: string;
+  phase?: LivePhase;
+  model?: string;
+  stopReason?: string;
+  commandName?: string;
+  prompt?: string;
+};
 
 type LiveRun = {
   sessionId: string;
@@ -996,6 +1007,41 @@ function buildMinimalStatus(phase: LivePhase, spinner: string): string {
 	return `${spinner} gemini`;
 }
 
+// ---------------------------------------------------------------------------
+// Message renderer helpers
+// ---------------------------------------------------------------------------
+
+/** Status icon: ✦ while working, ◇ when done/idle. */
+function geminiStatusIcon(phase: string | undefined): string {
+  if (phase && phase !== "completed" && phase !== "error") return "✦";
+  return "◇";
+}
+
+/** Truncate session ID to first4…last4 format. */
+function shortSessionId(id: string): string {
+  if (id.length <= 12) return id;
+  return `${id.slice(0, 4)}…${id.slice(-4)}`;
+}
+
+/** Build the standard header line: icon + toolTitle + dim metadata. */
+function buildGeminiHeader(
+  details: { sessionId?: string; model?: string; stopReason?: string; phase?: string },
+  theme: Theme,
+): string {
+  const icon = geminiStatusIcon(details.phase);
+  let header = `${icon} ${theme.fg("toolTitle", theme.bold("gemini_acp"))}`;
+  if (details.sessionId) {
+    header += theme.fg("dim", ` · session ${shortSessionId(details.sessionId)}`);
+  }
+  if (details.model) {
+    header += theme.fg("dim", ` · ${details.model}`);
+  }
+  if (details.stopReason) {
+    header += theme.fg("dim", ` · ${details.stopReason}`);
+  }
+  return header;
+}
+
 export default function geminiAcpExtension(pi: ExtensionAPI) {
   const client = new AcpClient(pi);
   let state: GeminiState = { sessions: {} };
@@ -1017,60 +1063,96 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
       events?: string[];
       model?: string;
       stopReason?: string;
+      phase?: string;
     };
 
+    // Fallback for non-session messages (e.g. /gemini:status, /gemini:sessions)
     if (!details.sessionId) {
-      return new Text(String(message.content || ""), 0, 0);
+      const mdTheme = getMarkdownTheme();
+      return new Markdown(String(message.content || "(no output)"), 0, 0, mdTheme);
     }
 
     const dim = (s: string) => theme.fg("dim", s);
+    const header = buildGeminiHeader(details, theme);
 
-    // Subtle header – dim bracketed text instead of accent color
-    const header = dim(`[ Gemini ACP · ${details.sessionId} ]`);
+    // --- Collapsed view ---
+    if (!expanded) {
+      let text = header;
 
-    // Prompt as subtle "You:" label
-    const prompt = details.prompt ? `\n${theme.bold("You:")} ${details.prompt.trim()}` : "";
-
-    // Answer as main content with "Gemini:" label
-    const answer = details.answer ? `\n${theme.bold("Gemini:")}\n${details.answer.trim()}` : "";
-
-    // Timeline – dimmed blockquote style to subordinate meta-information
-    let timeline = "";
-    if (Array.isArray(details.events) && details.events.length) {
-      const visible = expanded ? details.events : details.events.slice(-10);
-      const lines = visible.map((e) => dim(`│ ${e}`)).join("\n");
-      timeline = `\n\n${dim("Timeline:")}\n${lines}`;
-      if (!expanded && details.events.length > visible.length) {
-        timeline += `\n${dim(`│ … ${details.events.length - visible.length} more (expand to view all)`)}`;
+      // Prompt preview (dim, single line)
+      if (details.prompt) {
+        const promptPreview =
+          details.prompt.trim().length > 80
+            ? details.prompt.trim().slice(0, 80) + "…"
+            : details.prompt.trim();
+        text += `\n${theme.bold("You:")} ${dim(promptPreview)}`;
       }
+
+      // Answer preview (first ~200 chars, plain text)
+      if (details.answer) {
+        const answerPreview =
+          details.answer.trim().length > 200
+            ? details.answer.trim().slice(0, 200) + "…"
+            : details.answer.trim();
+        text += `\n\n${answerPreview}`;
+      }
+
+      // Hint about hidden content
+      const hiddenParts: string[] = [];
+      if (details.events?.length) {
+        hiddenParts.push(`${details.events.length} events`);
+      }
+      if (details.thought) {
+        hiddenParts.push("thought stream");
+      }
+      if (hiddenParts.length) {
+        text += `\n\n${dim(`(${hiddenParts.join(" · ")} · Ctrl+O to expand)`)}`;
+      }
+
+      return new Text(text, 0, 0);
     }
 
-    // Thought stream – dimmed blockquote style
-    const thought = details.thought
-      ? `\n\n${dim("Thought stream:")}\n${dim(
-          expanded
-            ? details.thought
-                .trim()
-                .split("\n")
-                .map((l: string) => `│ ${l}`)
-                .join("\n")
-            : details.thought
-                .trim()
-                .slice(0, 1200)
-                .split("\n")
-                .map((l: string) => `│ ${l}`)
-                .join("\n") + (details.thought.trim().length > 1200 ? "\n│ …" : ""),
-        )}`
-      : "";
+    // --- Expanded view ---
+    const mdTheme = getMarkdownTheme();
+    const container = new Container();
 
-    // Metadata (model, stop reason) – moved to the end, dimmed
-    const meta: string[] = [];
-    if (details.model) meta.push(`Model: ${details.model}`);
-    if (details.stopReason) meta.push(`Stop: ${details.stopReason}`);
-    const metaStr = meta.length ? `\n\n${dim(meta.join(" · "))}` : "";
+    // Header
+    container.addChild(new Text(header, 0, 0));
+    container.addChild(new Spacer(1));
 
-    // No background color, no extra padding – blend with native messages
-    return new Text(`${header}${prompt}${answer}${timeline}${thought}${metaStr}`, 0, 0);
+    // Prompt
+    if (details.prompt) {
+      container.addChild(new Text(`${theme.bold("You:")} ${details.prompt.trim()}`, 0, 0));
+      container.addChild(new Spacer(1));
+    }
+
+    // Answer as Markdown
+    const answerText = details.answer?.trim() || "(no response)";
+    container.addChild(new Markdown(answerText, 0, 0, mdTheme));
+
+    // Timeline (dimmed)
+    if (details.events?.length) {
+      container.addChild(new Spacer(1));
+      const timelineLines = details.events.map((e) => dim(`│ ${e}`)).join("\n");
+      container.addChild(new Text(`${dim("Timeline:")}\n${timelineLines}`, 0, 0));
+    }
+
+    // Thought stream (dimmed, capped at ~3000 chars)
+    if (details.thought) {
+      container.addChild(new Spacer(1));
+      const cap = 3000;
+      let thoughtBody = details.thought.trim();
+      if (thoughtBody.length > cap) {
+        thoughtBody = thoughtBody.slice(0, cap) + "\n…(truncated)";
+      }
+      const thoughtLines = thoughtBody
+        .split("\n")
+        .map((l: string) => `│ ${l}`)
+        .join("\n");
+      container.addChild(new Text(`${dim("Thought stream:")}\n${dim(thoughtLines)}`, 0, 0));
+    }
+
+    return container;
   });
 
   const persistState = () => {
@@ -1362,15 +1444,6 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
     stopReason?: string;
   };
 
-  type GeminiToolDetails = {
-    sessionId?: string;
-    phase?: LivePhase;
-    model?: string;
-    stopReason?: string;
-    commandName?: string;
-    prompt?: string;
-  };
-
   type GeminiRunHooks = {
     onUpdate?: AgentToolUpdateCallback<GeminiToolDetails>;
     signal?: AbortSignal;
@@ -1641,6 +1714,7 @@ export default function geminiAcpExtension(pi: ExtensionAPI) {
             events: runResult.events,
             model: runResult.model,
             stopReason: runResult.stopReason,
+            phase: "completed",
           },
         },
         { triggerTurn: false },
