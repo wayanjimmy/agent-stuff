@@ -20,10 +20,11 @@ Gemini CLI is pre-installed in this environment:
 
 ### Headless Mode with Streaming Output
 
-**Always use this pattern** for agent workflows (always include `--raw-output --accept-raw-output-risk`):
+**Always use this pattern** for agent workflows (always include `--raw-output --accept-raw-output-risk`).
+**Pipe through gemcli** for beautiful, readable output:
 
 ```bash
-gemini -p "your prompt here" --approval-mode yolo --output-format stream-json --raw-output --accept-raw-output-risk
+gemini -p "your prompt here" --approval-mode yolo --output-format stream-json --raw-output --accept-raw-output-risk | GEMCLI_MODE=stream gemcli
 ```
 
 **Key flags:**
@@ -31,6 +32,9 @@ gemini -p "your prompt here" --approval-mode yolo --output-format stream-json --
 - `--approval-mode yolo` - Auto-approve all tool calls (YOLO mode)
 - `--output-format stream-json` - Streaming JSON events for real-time progress
 - `--raw-output --accept-raw-output-risk` - Raw unsanitized output (always use with stream-json)
+- Keep stderr visible for observability (Gemini CLI outputs progress/status to stderr)
+- `GEMCLI_MODE=stream` - Force gemcli stream mode (compact ANSI, PTY-friendly)
+- `| gemcli` - Pipe JSON output through gemcli for pretty formatting
 
 ### Approval Modes
 - `yolo` - Auto-approve all tool calls (default for this skill)
@@ -48,7 +52,7 @@ Defined in `~/.gemini/commands/reviewer.toml`.
 Thorough code reviewer focusing on correctness, security, edge cases, and actionable feedback with minimal diffs.
 
 ```bash
-gemini -p "/reviewer review the latest commit" --approval-mode yolo --output-format stream-json --raw-output --accept-raw-output-risk
+gemini -p "/reviewer review the latest commit" --approval-mode yolo --output-format stream-json --raw-output --accept-raw-output-risk | GEMCLI_MODE=stream gemcli
 ```
 
 **When to use:** Whenever the user asks Gemini to review code, check a PR, audit for bugs/security, or provide code feedback.
@@ -60,7 +64,7 @@ Defined in `~/.gemini/commands/researcher.toml`.
 Research specialist with access to `google_web_search` tool for web searching and deep analysis.
 
 ```bash
-gemini -p "/researcher compare React Server Components vs Astro islands" --approval-mode yolo --output-format stream-json --raw-output --accept-raw-output-risk
+gemini -p "/researcher compare React Server Components vs Astro islands" --approval-mode yolo --output-format stream-json --raw-output --accept-raw-output-risk | GEMCLI_MODE=stream gemcli
 ```
 
 **When to use:** Whenever the user asks Gemini to research a topic, look up documentation, find best practices, compare technologies, or gather information from the web.
@@ -95,7 +99,7 @@ gemini -p "/researcher compare React Server Components vs Astro islands" --appro
 
 When the user asks to "use Gemini":
 
-1. **Always use headless mode with streaming:** `--approval-mode yolo --output-format stream-json --raw-output --accept-raw-output-risk`
+1. **Always use headless mode with streaming + gemcli:** `--approval-mode yolo --output-format stream-json --raw-output --accept-raw-output-risk | GEMCLI_MODE=stream gemcli`
 2. **Use `usePTY=true`** in bash execution for real-time streaming view
 3. **Use appropriate timeout:** Default 180s, up to 420s for complex tasks (Gemini typically takes 2-6 minutes)
 4. **Route to custom slash commands when applicable:**
@@ -106,27 +110,27 @@ When the user asks to "use Gemini":
 
 ### Analyze Project Structure
 ```bash
-gemini -p "Analyze this codebase. What is the project about? What tech stack does it use?" --approval-mode yolo --output-format stream-json --raw-output --accept-raw-output-risk
+gemini -p "Analyze this codebase. What is the project about? What tech stack does it use?" --approval-mode yolo --output-format stream-json --raw-output --accept-raw-output-risk | GEMCLI_MODE=stream gemcli
 ```
 
 ### Read and Explain File
 ```bash
-gemini -p "Read @cmd/stitchdb/main.go and explain the entry point" --approval-mode yolo --output-format stream-json --raw-output --accept-raw-output-risk
+gemini -p "Read @cmd/stitchdb/main.go and explain the entry point" --approval-mode yolo --output-format stream-json --raw-output --accept-raw-output-risk | GEMCLI_MODE=stream gemcli
 ```
 
 ### Search for Patterns
 ```bash
-gemini -p "Find all TODO comments in the Go source files" --approval-mode yolo --output-format stream-json --raw-output --accept-raw-output-risk
+gemini -p "Find all TODO comments in the Go source files" --approval-mode yolo --output-format stream-json --raw-output --accept-raw-output-risk | GEMCLI_MODE=stream gemcli
 ```
 
 ### Compare Files
 ```bash
-gemini -p "Compare @file1.go and @file2.go and highlight differences" --approval-mode yolo --output-format stream-json --raw-output --accept-raw-output-risk
+gemini -p "Compare @file1.go and @file2.go and highlight differences" --approval-mode yolo --output-format stream-json --raw-output --accept-raw-output-risk | GEMCLI_MODE=stream gemcli
 ```
 
 ### Generate Code
 ```bash
-gemini -p "Create a new Go function that handles database connection retries" --approval-mode yolo --output-format stream-json --raw-output --accept-raw-output-risk
+gemini -p "Create a new Go function that handles database connection retries" --approval-mode yolo --output-format stream-json --raw-output --accept-raw-output-risk | GEMCLI_MODE=stream gemcli
 ```
 
 ## Configuration Files
