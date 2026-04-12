@@ -1,6 +1,10 @@
 ---
 name: gemini-cli
-description: Use Google's Gemini CLI tool for AI-powered code analysis, file editing, and shell assistance in agent workflows.
+description: |
+  USE THIS SKILL when the user explicitly asks to "use Gemini", "ask Gemini", "have Gemini", 
+  "get Gemini to", or "run Gemini" for any task. This skill delegates work to Google's Gemini 
+  CLI tool via interactive_shell for AI-powered code analysis, file editing, shell assistance, 
+  code reviews, and web research. Do NOT use this skill for general tasks you can handle directly.
 ---
 
 # Gemini CLI Skill
@@ -10,6 +14,21 @@ Skill for using Google's Gemini CLI tool effectively in agent workflows.
 ## Overview
 
 Gemini CLI is an open-source AI-powered terminal assistant that brings Gemini models directly to the command line. It can analyze codebases, edit files, run shell commands, and provide intelligent assistance.
+
+## When to Use This Skill
+
+**ACTIVATE this skill when the user says things like:**
+- "Use Gemini to..."
+- "Ask Gemini to..."
+- "Have Gemini..."
+- "Get Gemini to..."
+- "Run Gemini for..."
+- "Let Gemini..."
+
+**DO NOT use this skill when:**
+- The user asks you directly to perform a task (use your own capabilities)
+- The request is a general coding/editing task you can handle with standard tools
+- No explicit mention of "Gemini" or delegation to another AI agent
 
 ## Installation & Availability
 
