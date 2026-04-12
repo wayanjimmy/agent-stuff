@@ -67,23 +67,6 @@ gemini -p "/researcher compare React Server Components vs Astro islands" --appro
 
 ## Common Commands Reference
 
-### Built-in Slash Commands (within interactive mode)
-
-| Command | Description |
-|---------|-------------|
-| `/about` | Show version info |
-| `/help` | Display help |
-| `/clear` | Clear terminal (Ctrl+L) |
-| `/quit` or `/exit` | Exit CLI |
-| `/copy` | Copy last output to clipboard |
-| `/model set <model>` | Change AI model |
-| `/settings` | Open settings editor |
-| `/theme` | Change visual theme |
-| `/stats model` | Check token usage and quota |
-| `/resume` | Resume past sessions |
-| `/chat save <tag>` | Save conversation checkpoint |
-| `/compress` | Summarize chat context |
-
 ### File Operations (`@` syntax)
 
 ```bash
