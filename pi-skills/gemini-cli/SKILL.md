@@ -1,4 +1,5 @@
 ---
+name: gemini-cli
 description: Use Google's Gemini CLI tool for AI-powered code analysis, file editing, and shell assistance in agent workflows.
 ---
 
