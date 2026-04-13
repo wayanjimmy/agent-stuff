@@ -13,8 +13,16 @@ Gemini CLI is an open-source AI-powered terminal assistant that brings Gemini mo
 
 ## Installation & Availability
 
-Gemini CLI is pre-installed in this environment:
-- **Path:** `~/.local/share/mise/installs/node/25.8.1/bin/gemini`
+Gemini CLI is pre-installed in this environment. To find the path:
+```bash
+which gemini
+# Output: ~/.local/share/mise/installs/node/25.8.1/bin/gemini
+```
+
+Or list all mise binary paths:
+```bash
+mise bin-paths | grep node
+```
 
 ## Essential Usage Patterns
 
