@@ -13,41 +13,18 @@ Gemini CLI is an open-source AI-powered terminal assistant that brings Gemini mo
 
 ## Installation & Availability
 
-Gemini CLI is pre-installed in this environment. To find the path:
+Gemini CLI should be available in the system PATH. To find the path:
 ```bash
 which gemini
-# Output: ~/.local/share/mise/installs/node/25.8.1/bin/gemini
-```
-
-Or list all mise binary paths:
-```bash
-mise bin-paths | grep node
 ```
 
 ## Essential Usage Patterns
 
-### Interactive Mode via `interactive_shell`
-
-For real-time streaming output with full terminal experience, use `interactive_shell`:
-
-```typescript
-interactive_shell({
-  command: 'gemini -p "your prompt here" --approval-mode yolo',
-  mode: "interactive"
-})
-```
-
-**Modes:**
-- `interactive` - User watches/controls the session, agent blocked until complete
-- `hands-free` - Auto-exit on quiet, agent monitors with periodic updates
-- `dispatch` - Fire-and-forget, agent notified on completion
-
-### Headless Mode (for programmatic use)
-
-For capturing output in agent workflows:
+Run Gemini CLI as a regular bash command with a timeout:
 
 ```bash
-gemini -p "your prompt here" --approval-mode yolo --output-format json --raw-output --accept-raw-output-risk
+$ gemini -p "your prompt here" --approval-mode yolo 2>&1
+(timeout 120s)
 ```
 
 **Key flags:**
@@ -58,13 +35,13 @@ gemini -p "your prompt here" --approval-mode yolo --output-format json --raw-out
 - `--raw-output --accept-raw-output-risk` - Raw unsanitized output
 
 ### Approval Modes
-- `yolo` - Auto-approve all tool calls (default for this skill)
+- `yolo` - Auto-approve all tool calls. **Warning:** Use with caution as this allows the model to execute arbitrary shell commands and file edits without manual confirmation. Only use in trusted environments.
 - `auto_edit` - Auto-approve only file edit tools
 - `plan` - Read-only mode (no changes)
 
 ## Custom Slash Commands
 
-Custom commands are defined in `~/.gemini/commands/*.toml`. They work in **both interactive and headless mode** — pass the slash command as part of the `-p` prompt.
+Custom commands are defined in `~/.gemini/commands/*.toml`. They work by passing the slash command as part of the `-p` prompt.
 
 ### `/reviewer` — Code Review
 
@@ -72,12 +49,10 @@ Defined in `~/.gemini/commands/reviewer.toml`.
 
 Thorough code reviewer focusing on correctness, security, edge cases, and actionable feedback with minimal diffs.
 
-**Interactive mode:**
-```typescript
-interactive_shell({
-  command: 'gemini -p "/reviewer review the latest commit" --approval-mode yolo',
-  mode: "interactive"
-})
+**Example:**
+```bash
+$ gemini -p "/reviewer Please review this git diff from file /tmp/changes.diff for correctness, potential bugs, security issues, and provide actionable feedback" --approval-mode yolo 2>&1
+(timeout 120s)
 ```
 
 **When to use:** Whenever the user asks Gemini to review code, check a PR, audit for bugs/security, or provide code feedback.
@@ -88,12 +63,10 @@ Defined in `~/.gemini/commands/researcher.toml`.
 
 Research specialist with access to `google_web_search` tool for web searching and deep analysis.
 
-**Interactive mode:**
-```typescript
-interactive_shell({
-  command: 'gemini -p "/researcher compare React Server Components vs Astro islands" --approval-mode yolo',
-  mode: "interactive"
-})
+**Example:**
+```bash
+$ gemini -p "/researcher compare React Server Components vs Astro islands" --approval-mode yolo 2>&1
+(timeout 120s)
 ```
 
 **When to use:** Whenever the user asks Gemini to research a topic, look up documentation, find best practices, compare technologies, or gather information from the web.
@@ -104,85 +77,68 @@ interactive_shell({
 
 ```bash
 # Include file in prompt
-@src/components/UserProfile.tsx Explain this component
+$ gemini -p "@src/components/UserProfile.tsx Explain this component" --approval-mode yolo 2>&1
 
 # Include multiple files
-@file1.go @file2.go Compare these files
+$ gemini -p "@file1.go @file2.go Compare these files" --approval-mode yolo 2>&1
 
 # Include directory
-@src/utils/ Check for deprecated APIs
+$ gemini -p "@src/utils/ Check for deprecated APIs" --approval-mode yolo 2>&1
 ```
 
 ### Shell Commands (`!` syntax)
 
 ```bash
 # Execute shell command
-!ls -la
-!git status
-
-# Toggle shell mode (type ! alone)
-!
+$ gemini -p "!git status" --approval-mode yolo 2>&1
 ```
 
 ## Agent Usage Guidelines
 
 When the user asks to "use Gemini":
 
-1. **Use `interactive_shell` for real-time streaming:** Run in `interactive` mode so the user can watch progress
-2. **Use appropriate timeout:** Default 180s, up to 420s for complex tasks (Gemini typically takes 2-6 minutes)
+1. **Execute as regular bash command:** Run with `bash` tool, include timeout.
+2. **Use appropriate timeout:** Gemini typically takes 2-6 minutes. Use **300s (5m)** for standard tasks and up to **600s (10m)** for complex reviews or large file generations.
 3. **Route to custom slash commands when applicable:**
    - **Code review tasks** (review PR, audit code, check for bugs/security) → prepend `/reviewer` to the prompt
    - **Research tasks** (look up docs, compare tech, find best practices, web search) → prepend `/researcher` to the prompt
 
-### Example: Interactive Session
-```typescript
-interactive_shell({
-  command: 'gemini -p "/reviewer check this PR for security issues" --approval-mode yolo',
-  mode: "interactive",
-  timeout: 300000
-})
+### Example: Code Review
+```bash
+$ gemini -p "/reviewer review the latest commit for security issues" --approval-mode yolo 2>&1
+(timeout 300s)
 ```
 
 ## Examples
 
 ### Analyze Project Structure
-```typescript
-interactive_shell({
-  command: 'gemini -p "Analyze this codebase. What is the project about? What tech stack does it use?" --approval-mode yolo',
-  mode: "interactive"
-})
+```bash
+$ gemini -p "Analyze this codebase. What is the project about? What tech stack does it use?" --approval-mode yolo 2>&1
+(timeout 120s)
 ```
 
 ### Read and Explain File
-```typescript
-interactive_shell({
-  command: 'gemini -p "Read @cmd/stitchdb/main.go and explain the entry point" --approval-mode yolo',
-  mode: "interactive"
-})
+```bash
+$ gemini -p "Read @cmd/stitchdb/main.go and explain the entry point" --approval-mode yolo 2>&1
+(timeout 120s)
 ```
 
 ### Search for Patterns
-```typescript
-interactive_shell({
-  command: 'gemini -p "Find all TODO comments in the Go source files" --approval-mode yolo',
-  mode: "interactive"
-})
+```bash
+$ gemini -p "Find all TODO comments in the Go source files" --approval-mode yolo 2>&1
+(timeout 120s)
 ```
 
 ### Compare Files
-```typescript
-interactive_shell({
-  command: 'gemini -p "Compare @file1.go and @file2.go and highlight differences" --approval-mode yolo',
-  mode: "interactive"
-})
+```bash
+$ gemini -p "Compare @file1.go and @file2.go and highlight differences" --approval-mode yolo 2>&1
+(timeout 120s)
 ```
 
 ### Generate Code
-```typescript
-interactive_shell({
-  command: 'gemini -p "Create a new Go function that handles database connection retries" --approval-mode yolo',
-  mode: "interactive"
-})
+```bash
+$ gemini -p "Create a new Go function that handles database connection retries" --approval-mode yolo 2>&1
+(timeout 180s)
 ```
 
 ## Configuration Files
