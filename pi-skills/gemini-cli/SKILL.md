@@ -24,8 +24,13 @@ Run Gemini CLI as a regular bash command with a timeout:
 
 ```bash
 $ gemini -p "your prompt here" --approval-mode yolo 2>&1
-(timeout 120s)
+(timeout 300s)
 ```
+
+**Timeout Guidelines:**
+- **Minimum: 240s (4 minutes)** - Absolute minimum for any Gemini command
+- **Standard: 300-480s (5-8 minutes)** - Most code analysis and file operations
+- **Complex tasks: 600s (10 minutes)** - Large file generation, complex reviews, or multi-step operations
 
 **Key flags:**
 - `-p, --prompt` - Run in non-interactive mode with the given prompt
@@ -98,7 +103,10 @@ $ gemini -p "!git status" --approval-mode yolo 2>&1
 When the user asks to "use Gemini":
 
 1. **Execute as regular bash command:** Run with `bash` tool, include timeout.
-2. **Use appropriate timeout:** Gemini typically takes 2-6 minutes. Use **300s (5m)** for standard tasks and up to **600s (10m)** for complex reviews or large file generations.
+2. **Use appropriate timeout:** Gemini typically takes 2-8 minutes depending on task complexity.
+   - **Minimum 240s (4m)** for any command
+   - **300-480s (5-8m)** for standard tasks
+   - **600s (10m)** for complex reviews or large file generations
 3. **Route to custom slash commands when applicable:**
    - **Code review tasks** (review PR, audit code, check for bugs/security) → prepend `/reviewer` to the prompt
    - **Research tasks** (look up docs, compare tech, find best practices, web search) → prepend `/researcher` to the prompt
