@@ -245,7 +245,7 @@ describe("performSearch", () => {
 
 	it("sends correct body to Tavily API", async () => {
 		const fetchFn = vi.fn().mockResolvedValue(
-			jsonResponse({ query: "q", results: [], response_time: 0.1 }),
+			jsonResponse({ query: "q", results: [], response_time: 0.1, request_id: "req-123" }),
 		);
 		const deps = makeDeps({ fetchFn });
 
@@ -261,6 +261,7 @@ describe("performSearch", () => {
 		expect(body.max_results).toBe(5);
 		expect(body.topic).toBe("news");
 		expect(body.search_queries).toEqual(["kw1"]);
-		expect(body.api_key).toBe("test-key");
+		// API key is now in Authorization header, not body
+		expect(call[1].headers.Authorization).toBe("Bearer test-key");
 	});
 });

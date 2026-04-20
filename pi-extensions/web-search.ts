@@ -57,18 +57,23 @@ function throwIfAborted(signal?: AbortSignal): void {
   }
 }
 
-async function parseTavilyError(response: Response): Promise<string> {
-  let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+interface TavilyErrorResponse {
+  detail?: { error?: string };
+  error?: string;
+  request_id?: string;
+}
+
+async function parseTavilyError(response: Response): Promise<{ message: string; requestId?: string }> {
+  let message = `HTTP ${response.status}: ${response.statusText}`;
+  let requestId: string | undefined;
   try {
-    const errorData = (await response.json()) as {
-      detail?: { error?: string };
-      error?: string;
-    };
-    errorMessage = errorData.detail?.error || errorData.error || errorMessage;
+    const errorData = (await response.json()) as TavilyErrorResponse;
+    message = errorData.detail?.error || errorData.error || message;
+    requestId = errorData.request_id;
   } catch {
     // Use default error message
   }
-  return errorMessage;
+  return { message, requestId };
 }
 
 function handleTransportError(
@@ -154,7 +159,7 @@ const WebSearchParams = Type.Object({
   objective: Type.String({
     description:
       "A natural-language description of the broader task or research goal, " +
-      "including any source or freshness guidance.",
+      "including any source or freshness guidance. Keep under 400 characters.",
   }),
   search_queries: Type.Optional(
     Type.Array(Type.String(), {
@@ -172,9 +177,46 @@ const WebSearchParams = Type.Object({
     }),
   ),
   topic: Type.Optional(
-    Type.Union([Type.Literal("general"), Type.Literal("news")], {
-      description: "Type of search — general for web, news for recent articles",
+    Type.Union([Type.Literal("general"), Type.Literal("news"), Type.Literal("finance")], {
+      description: "Type of search — general for web, news for recent articles, finance for financial data",
       default: "general",
+    }),
+  ),
+  search_depth: Type.Optional(
+    Type.Union(
+      [
+        Type.Literal("ultra-fast"),
+        Type.Literal("fast"),
+        Type.Literal("basic"),
+        Type.Literal("advanced"),
+      ],
+      {
+        description:
+          "Search depth — ultra-fast: lowest latency, fast: good relevance, " +
+          "basic: balanced (default), advanced: highest relevance",
+        default: "basic",
+      },
+    ),
+  ),
+  time_range: Type.Optional(
+    Type.Union([Type.Literal("day"), Type.Literal("week"), Type.Literal("month"), Type.Literal("year")], {
+      description: "Filter results by time range",
+    }),
+  ),
+  include_domains: Type.Optional(
+    Type.Array(Type.String(), {
+      description: "Domains to include in search results (max 300, supports wildcards like *.com)",
+    }),
+  ),
+  exclude_domains: Type.Optional(
+    Type.Array(Type.String(), {
+      description: "Domains to exclude from search results (max 150)",
+    }),
+  ),
+  include_answer: Type.Optional(
+    Type.Union([Type.Literal(true), Type.Literal(false)], {
+      description: "Include AI-generated answer (costs extra credits). Most users bring their own LLM.",
+      default: true,
     }),
   ),
   // Backward-compatible alias
@@ -205,6 +247,7 @@ interface TavilySearchResponse {
   answer?: string;
   results: TavilySearchResult[];
   response_time: number;
+  request_id: string;
 }
 
 interface SearchState {
@@ -213,6 +256,7 @@ interface SearchState {
   answer?: string;
   results: TavilySearchResult[];
   responseTime?: number;
+  requestId?: string;
   error?: string;
 }
 
@@ -286,17 +330,32 @@ async function performSearch(
     };
   }
 
+  // Enforce 400 character limit per Tavily best practices
+  const query = objective.length > 400 ? objective.slice(0, 400) : objective;
+
   throwIfAborted(signal);
 
-  const body = {
-    query: objective,
-    search_depth: "basic" as const,
+  const body: Record<string, unknown> = {
+    query,
+    search_depth: params.search_depth ?? "basic",
     max_results: params.max_results ?? 8,
-    include_answer: true,
+    include_answer: params.include_answer ?? true,
     include_raw_content: false,
     topic: params.topic ?? "general",
-    ...(params.search_queries?.length ? { search_queries: params.search_queries } : {}),
   };
+
+  if (params.search_queries?.length) {
+    body.search_queries = params.search_queries;
+  }
+  if (params.time_range) {
+    body.time_range = params.time_range;
+  }
+  if (params.include_domains?.length) {
+    body.include_domains = params.include_domains;
+  }
+  if (params.exclude_domains?.length) {
+    body.exclude_domains = params.exclude_domains;
+  }
 
   try {
     const response = await deps.fetchFn(TAVILY_SEARCH_API_URL, {
@@ -312,8 +371,8 @@ async function performSearch(
     throwIfAborted(signal);
 
     if (!response.ok) {
-      const errorMessage = await parseTavilyError(response);
-      return { status: "error", query: objective, results: [], error: errorMessage };
+      const { message: errorMessage, requestId } = await parseTavilyError(response);
+      return { status: "error", query: objective, results: [], error: errorMessage, requestId };
     }
 
     const data = (await response.json()) as TavilySearchResponse;
@@ -325,6 +384,7 @@ async function performSearch(
       answer: data.answer,
       results: data.results,
       responseTime: data.response_time,
+      requestId: data.request_id,
     };
   } catch (error) {
     const { status, error: errorMsg } = handleTransportError(error, "Search");
@@ -371,17 +431,21 @@ function renderWebSearchResult(
   const icon = statusIcon(status);
   const totalResults = state.results.length;
   const responseTimeInfo = state.responseTime ? ` · ${state.responseTime.toFixed(2)}s` : "";
+  const requestIdInfo = state.requestId ? ` · req: ${state.requestId.slice(0, 8)}…` : "";
 
   const header =
     `${icon} ${theme.fg("toolTitle", theme.bold("web_search"))}` +
-    theme.fg("dim", ` · ${totalResults} result${totalResults === 1 ? "" : "s"}${responseTimeInfo}`);
+    theme.fg("dim", ` · ${totalResults} result${totalResults === 1 ? "" : "s"}${responseTimeInfo}${requestIdInfo}`);
 
   if (status === "running") {
     return new Text(`${header}\n\n${theme.fg("dim", "Searching Tavily…")}`, 0, 0);
   }
 
   if (state.error) {
-    return new Text(`${header}\n\n${theme.fg("error", state.error)}`, 0, 0);
+    const errorText = state.requestId
+      ? `${state.error}\n\n${theme.fg("dim", `Request ID: ${state.requestId} (include in Tavily support tickets)`)}`
+      : state.error;
+    return new Text(`${header}\n\n${theme.fg("error", errorText)}`, 0, 0);
   }
 
   const sections = searchResultsToSections(state);
@@ -430,6 +494,19 @@ const WebExtractParams = Type.Object({
       maximum: 5,
     }),
   ),
+  timeout: Type.Optional(
+    Type.Number({
+      description: "Maximum wait time in seconds (1.0-60.0) for slow pages",
+      minimum: 1,
+      maximum: 60,
+    }),
+  ),
+  include_images: Type.Optional(
+    Type.Union([Type.Literal(true), Type.Literal(false)], {
+      description: "Include image URLs in the extracted content",
+      default: false,
+    }),
+  ),
 });
 
 type WebExtractParamsType = Static<typeof WebExtractParams>;
@@ -447,6 +524,7 @@ interface TavilyExtractResponse {
   results: TavilyExtractResult[];
   failed?: Array<{ url: string; error?: string }>;
   response_time: number;
+  request_id: string;
 }
 
 interface ExtractResult {
@@ -462,6 +540,7 @@ interface ExtractState {
   results: ExtractResult[];
   failed: Array<{ url: string; error?: string }>;
   responseTime?: number;
+  requestId?: string;
   error?: string;
 }
 
@@ -570,6 +649,12 @@ async function performExtract(
   if (params.chunks_per_source) {
     body.chunks_per_source = params.chunks_per_source;
   }
+  if (params.timeout) {
+    body.timeout = params.timeout;
+  }
+  if (params.include_images) {
+    body.include_images = params.include_images;
+  }
 
   try {
     const response = await deps.fetchFn(TAVILY_EXTRACT_API_URL, {
@@ -585,8 +670,8 @@ async function performExtract(
     throwIfAborted(signal);
 
     if (!response.ok) {
-      const errorMessage = await parseTavilyError(response);
-      return { status: "error", urls, results: [], failed: [], error: errorMessage };
+      const { message: errorMessage, requestId } = await parseTavilyError(response);
+      return { status: "error", urls, results: [], failed: [], error: errorMessage, requestId };
     }
 
     const data = (await response.json()) as TavilyExtractResponse;
@@ -599,13 +684,67 @@ async function performExtract(
       content: r.raw_content || "",
     }));
 
+    // Fallback strategy: retry failed URLs with advanced depth if basic was used
+    let finalResults = results;
+    let finalFailed = data.failed || [];
+
+    if (finalFailed.length > 0 && (params.extract_depth ?? "basic") === "basic") {
+      const failedUrls = finalFailed.map((f) => f.url);
+      try {
+        const retryBody: Record<string, unknown> = {
+          urls: failedUrls,
+          extract_depth: "advanced",
+          format: "markdown",
+        };
+        if (params.query?.trim()) {
+          retryBody.query = params.query.trim();
+        }
+        if (params.chunks_per_source) {
+          retryBody.chunks_per_source = params.chunks_per_source;
+        }
+        if (params.timeout) {
+          retryBody.timeout = params.timeout;
+        }
+        if (params.include_images) {
+          retryBody.include_images = params.include_images;
+        }
+
+        const retryResponse = await deps.fetchFn(TAVILY_EXTRACT_API_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify(retryBody),
+          signal,
+        });
+
+        if (retryResponse.ok) {
+          const retryData = (await retryResponse.json()) as TavilyExtractResponse;
+          const retryResults = (retryData.results || []).map((r) => ({
+            url: r.url,
+            title: extractTitle(r.url),
+            content: r.raw_content || "",
+          }));
+
+          // Merge successful retry results (deduplicate by URL)
+          const successfulRetryUrls = new Set(retryResults.map((r) => r.url));
+          finalResults = [...results.filter((r) => !successfulRetryUrls.has(r.url)), ...retryResults];
+          finalFailed = retryData.failed || [];
+        }
+      } catch {
+        // Retry failed, keep original results
+      }
+    }
+
     return {
       status: "done",
       urls,
       query: params.query?.trim(),
-      results,
-      failed: data.failed || [],
+      results: finalResults,
+      failed: finalFailed,
       responseTime: data.response_time,
+      requestId: data.request_id,
     };
   } catch (error) {
     const { status, error: errorMsg } = handleTransportError(error, "Extract");
@@ -670,17 +809,21 @@ function renderWebExtractResult(
   const successCount = state.results.length;
   const failedCount = state.failed.length;
   const responseTimeInfo = state.responseTime ? ` · ${state.responseTime.toFixed(2)}s` : "";
+  const requestIdInfo = state.requestId ? ` · req: ${state.requestId.slice(0, 8)}…` : "";
 
   const header =
     `${icon} ${theme.fg("toolTitle", theme.bold("web_extract"))}` +
-    theme.fg("dim", ` · ${successCount} succeeded${failedCount > 0 ? `, ${failedCount} failed` : ""}${responseTimeInfo}`);
+    theme.fg("dim", ` · ${successCount} succeeded${failedCount > 0 ? `, ${failedCount} failed` : ""}${responseTimeInfo}${requestIdInfo}`);
 
   if (status === "running") {
     return new Text(`${header}\n\n${theme.fg("dim", "Extracting content with Tavily…")}`, 0, 0);
   }
 
   if (state.error) {
-    return new Text(`${header}\n\n${theme.fg("error", state.error)}`, 0, 0);
+    const errorText = state.requestId
+      ? `${state.error}\n\n${theme.fg("dim", `Request ID: ${state.requestId} (include in Tavily support tickets)`)}`
+      : state.error;
+    return new Text(`${header}\n\n${theme.fg("error", errorText)}`, 0, 0);
   }
 
   const sections = extractResultsToSections(state);
@@ -711,7 +854,7 @@ const WebCrawlParams = Type.Object({
   }),
   max_depth: Type.Optional(
     Type.Number({
-      description: "Maximum crawl depth (1-5)",
+      description: "Maximum crawl depth (1-5). Start with 1-2 and increase if needed.",
       minimum: 1,
       maximum: 5,
       default: 1,
@@ -732,7 +875,7 @@ const WebCrawlParams = Type.Object({
   ),
   instructions: Type.Optional(
     Type.String({
-      description: "Natural language guidance for semantic focus",
+      description: "Natural language guidance for semantic focus (2 credits per 10 pages)",
     }),
   ),
   chunks_per_source: Type.Optional(
@@ -752,10 +895,40 @@ const WebCrawlParams = Type.Object({
       description: "Regex patterns for paths to exclude (e.g. ['/blog/.*'])",
     }),
   ),
+  select_domains: Type.Optional(
+    Type.Array(Type.String(), {
+      description: "Regex patterns for domains to include (e.g. ['^docs.example.com$'])",
+    }),
+  ),
+  exclude_domains: Type.Optional(
+    Type.Array(Type.String(), {
+      description: "Regex patterns for domains to exclude",
+    }),
+  ),
+  allow_external: Type.Optional(
+    Type.Union([Type.Literal(true), Type.Literal(false)], {
+      description: "Allow crawling external domains (default: true for crawl)",
+      default: true,
+    }),
+  ),
   extract_depth: Type.Optional(
     Type.Union([Type.Literal("basic"), Type.Literal("advanced")], {
-      description: "Use 'advanced' for JavaScript-heavy pages",
+      description: "Use 'advanced' for JavaScript-heavy pages (2 credits per 5 URLs vs 1 credit)",
       default: "basic",
+    }),
+  ),
+  timeout: Type.Optional(
+    Type.Number({
+      description: "Maximum wait time in seconds (10-150) for the crawl",
+      minimum: 10,
+      maximum: 150,
+      default: 150,
+    }),
+  ),
+  include_images: Type.Optional(
+    Type.Union([Type.Literal(true), Type.Literal(false)], {
+      description: "Include images extracted from pages",
+      default: false,
     }),
   ),
 });
@@ -774,6 +947,7 @@ interface TavilyCrawlResult {
 interface TavilyCrawlResponse {
   results: TavilyCrawlResult[];
   response_time: number;
+  request_id: string;
 }
 
 interface CrawlResult {
@@ -788,6 +962,7 @@ interface CrawlState {
   instructions?: string;
   results: CrawlResult[];
   responseTime?: number;
+  requestId?: string;
   error?: string;
 }
 
@@ -876,6 +1051,8 @@ async function performCrawl(
     limit: params.limit ?? 20,
     extract_depth: params.extract_depth ?? "basic",
     format: "markdown",
+    timeout: params.timeout ?? 150,
+    allow_external: params.allow_external ?? true,
   };
 
   if (params.max_breadth) {
@@ -893,6 +1070,15 @@ async function performCrawl(
   if (params.exclude_paths?.length) {
     body.exclude_paths = params.exclude_paths;
   }
+  if (params.select_domains?.length) {
+    body.select_domains = params.select_domains;
+  }
+  if (params.exclude_domains?.length) {
+    body.exclude_domains = params.exclude_domains;
+  }
+  if (params.include_images) {
+    body.include_images = params.include_images;
+  }
 
   try {
     const response = await deps.fetchFn(TAVILY_CRAWL_API_URL, {
@@ -908,8 +1094,8 @@ async function performCrawl(
     throwIfAborted(signal);
 
     if (!response.ok) {
-      const errorMessage = await parseTavilyError(response);
-      return { status: "error", url, results: [], error: errorMessage };
+      const { message: errorMessage, requestId } = await parseTavilyError(response);
+      return { status: "error", url, results: [], error: errorMessage, requestId };
     }
 
     const data = (await response.json()) as TavilyCrawlResponse;
@@ -928,6 +1114,7 @@ async function performCrawl(
       instructions: params.instructions?.trim(),
       results,
       responseTime: data.response_time,
+      requestId: data.request_id,
     };
   } catch (error) {
     const { status, error: errorMsg } = handleTransportError(error, "Crawl");
@@ -980,17 +1167,21 @@ function renderWebCrawlResult(
   const icon = statusIcon(status);
   const pageCount = state.results.length;
   const responseTimeInfo = state.responseTime ? ` · ${state.responseTime.toFixed(2)}s` : "";
+  const requestIdInfo = state.requestId ? ` · req: ${state.requestId.slice(0, 8)}…` : "";
 
   const header =
     `${icon} ${theme.fg("toolTitle", theme.bold("web_crawl"))}` +
-    theme.fg("dim", ` · ${pageCount} page${pageCount === 1 ? "" : "s"}${responseTimeInfo}`);
+    theme.fg("dim", ` · ${pageCount} page${pageCount === 1 ? "" : "s"}${responseTimeInfo}${requestIdInfo}`);
 
   if (status === "running") {
     return new Text(`${header}\n\n${theme.fg("dim", "Crawling site with Tavily…")}`, 0, 0);
   }
 
   if (state.error) {
-    return new Text(`${header}\n\n${theme.fg("error", state.error)}`, 0, 0);
+    const errorText = state.requestId
+      ? `${state.error}\n\n${theme.fg("dim", `Request ID: ${state.requestId} (include in Tavily support tickets)`)}`
+      : state.error;
+    return new Text(`${header}\n\n${theme.fg("error", errorText)}`, 0, 0);
   }
 
   const sections = crawlResultsToSections(state);
@@ -1046,6 +1237,9 @@ export type {
   TavilyCrawlResponse,
   ResultSection,
   SearchDeps,
+  WebSearchParamsType,
+  WebExtractParamsType,
+  WebCrawlParamsType,
 };
 
 // ---------------------------------------------------------------------------
@@ -1060,12 +1254,17 @@ export default function tavilyWebToolsExtension(pi: ExtensionAPI) {
     description:
       "Search the web for current information using Tavily's search API.\n" +
       "Use when you need up-to-date information that may not be in your training data.\n\n" +
-      "- Provide an `objective` describing what you want to learn.\n" +
+      "- Provide an `objective` describing what you want to learn (keep under 400 chars).\n" +
       "- Optionally add `search_queries` with specific keyword terms to prioritize.\n" +
-      "- Set `topic` to 'news' for recent articles.\n\n" +
+      "- Use `search_depth`: 'basic' (default), 'fast', 'advanced', or 'ultra-fast'.\n" +
+      "- Use `time_range` to filter by day/week/month/year.\n" +
+      "- Use `include_domains`/`exclude_domains` to filter sources.\n" +
+      "- Set `topic` to 'news' for recent articles, 'finance' for financial data.\n" +
+      "- Set `include_answer: false` to save credits (you likely have your own LLM).\n\n" +
       "Examples:\n" +
-      '  {"objective":"Find the latest Node.js LTS version and its release date"}\n' +
-      '  {"objective":"Compare Bun vs Deno runtime performance","search_queries":["bun benchmark","deno benchmark"]}',
+      '  {"objective":"Find the latest Node.js LTS version"}\n' +
+      '  {"objective":"Compare Bun vs Deno","search_depth":"advanced"}\n' +
+      '  {"objective":"AI news","topic":"news","time_range":"week"}',
     parameters: WebSearchParams,
 
     async execute(
@@ -1124,12 +1323,13 @@ export default function tavilyWebToolsExtension(pi: ExtensionAPI) {
       "Extract clean markdown content from specific URLs using Tavily's extract API.\n" +
       "Use when you have URLs and need their content, handles JavaScript-rendered pages.\n\n" +
       "- Provide `urls` (1-20) to extract content from.\n" +
-      "- Use `extract_depth: 'advanced'` for JavaScript-heavy pages.\n" +
-      "- Use `query` + `chunks_per_source` for relevance-focused extraction.\n\n" +
+      "- Use `extract_depth: 'advanced'` for JavaScript-heavy pages (auto-retries failed URLs).\n" +
+      "- Use `query` + `chunks_per_source` for relevance-focused extraction.\n" +
+      "- Use `timeout` (1-60s) for slow pages.\n\n" +
       "Examples:\n" +
       '  {"urls":["https://docs.example.com/api"]}\n' +
       '  {"urls":["https://app.example.com/dashboard"],"extract_depth":"advanced"}\n' +
-      '  {"urls":["https://docs.example.com"],"query":"authentication","chunks_per_source":3}',
+      '  {"urls":["https://docs.example.com"],"query":"authentication","chunks_per_source":3,"timeout":30}',
     parameters: WebExtractParams,
 
     async execute(
@@ -1188,13 +1388,15 @@ export default function tavilyWebToolsExtension(pi: ExtensionAPI) {
       "Crawl a website and extract content from multiple pages using Tavily's crawl API.\n" +
       "Use when you need content from many pages on a site (e.g., documentation, articles).\n\n" +
       "- Provide a `url` as the starting point.\n" +
-      "- Use `max_depth` (1-5) and `limit` to control scope.\n" +
-      "- Use `instructions` for semantic focus on relevant content.\n" +
-      "- Use `select_paths`/`exclude_paths` to filter which URLs to crawl.\n\n" +
+      "- Use `max_depth` (1-5, start with 1-2) and `limit` to control scope.\n" +
+      "- Use `instructions` for semantic focus on relevant content (2 credits/10 pages).\n" +
+      "- Use `select_paths`/`exclude_paths` or `select_domains`/`exclude_domains` to filter.\n" +
+      "- Use `allow_external: false` to stay on the same domain.\n" +
+      "- Use `timeout` (10-150s) for large crawls.\n\n" +
       "Examples:\n" +
       '  {"url":"https://docs.example.com","max_depth":2,"limit":30}\n' +
-      '  {"url":"https://docs.example.com","instructions":"API authentication endpoints","chunks_per_source":3}\n' +
-      '  {"url":"https://example.com","select_paths":["/docs/.*","/api/.*"],"exclude_paths":["/blog/.*"]}',
+      '  {"url":"https://docs.example.com","instructions":"API authentication","chunks_per_source":3}\n' +
+      '  {"url":"https://example.com","select_paths":["/docs/.*"],"allow_external":false}',
     parameters: WebCrawlParams,
 
     async execute(
