@@ -17,7 +17,7 @@ import type {
 } from "@mariozechner/pi-coding-agent";
 import type { Theme } from "@mariozechner/pi-coding-agent";
 import type { TextContent, ImageContent } from "@mariozechner/pi-ai";
-import { Type, type Static } from "@sinclair/typebox";
+import { Type, type Static } from "typebox";
 import { getMarkdownTheme } from "@mariozechner/pi-coding-agent";
 import { Container, Markdown, Spacer, Text, Component } from "@mariozechner/pi-tui";
 

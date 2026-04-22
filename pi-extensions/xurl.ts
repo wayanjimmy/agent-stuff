@@ -13,7 +13,7 @@
  */
 
 import type { ExtensionAPI, ExtensionContext, AgentToolUpdateCallback } from "@mariozechner/pi-coding-agent";
-import { Type, type Static } from "@sinclair/typebox";
+import { Type, type Static } from "typebox";
 
 // ---------------------------------------------------------------------------
 // Constants
