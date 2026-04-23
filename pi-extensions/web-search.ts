@@ -51,6 +51,110 @@ const DEFAULT_DEPS: SearchDeps = {
   fetchFn: fetch,
 };
 
+const DEFAULT_CONTEXT_BUDGET = 12000;
+const TRUNCATED_INDICATOR = "…[truncated]";
+const CONTEXT_BUDGET = resolveContextBudget();
+const SEARCH_RESULT_CHAR_BUDGET = 800;
+const SEARCH_TOTAL_CHAR_BUDGET = Math.min(CONTEXT_BUDGET, 8000);
+const EXTRACT_RESULT_CHAR_BUDGET = 4000;
+const EXTRACT_TOTAL_CHAR_BUDGET = Math.min(CONTEXT_BUDGET, 10000);
+const CRAWL_RESULT_CHAR_BUDGET = 2000;
+const CRAWL_TOTAL_CHAR_BUDGET = Math.min(CONTEXT_BUDGET, 8000);
+
+function resolveContextBudget(): number {
+  const rawValue = process.env.TAVILY_CONTEXT_BUDGET;
+  if (!rawValue) {
+    return DEFAULT_CONTEXT_BUDGET;
+  }
+
+  const parsed = Number.parseInt(rawValue, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_CONTEXT_BUDGET;
+  }
+
+  return parsed;
+}
+
+function truncateToCharBudget(text: string, maxChars: number): string {
+  if (maxChars <= 0) {
+    return "";
+  }
+
+  if (text.length <= maxChars) {
+    return text;
+  }
+
+  if (maxChars <= TRUNCATED_INDICATOR.length) {
+    return TRUNCATED_INDICATOR.slice(0, maxChars);
+  }
+
+  return `${text.slice(0, maxChars - TRUNCATED_INDICATOR.length)}${TRUNCATED_INDICATOR}`;
+}
+
+function createBudgetedTextBuilder(totalBudget: number) {
+  const blocks: string[] = [];
+  let length = 0;
+
+  return {
+    remaining(): number {
+      return totalBudget - length - (blocks.length === 0 ? 0 : 1);
+    },
+    canFit(block: string): boolean {
+      return block.length <= this.remaining();
+    },
+    append(block: string): "full" | "partial" | "none" {
+      const separatorLength = blocks.length === 0 ? 0 : 1;
+      const remaining = totalBudget - length - separatorLength;
+
+      if (remaining <= 0) {
+        return "none";
+      }
+
+      const nextBlock = truncateToCharBudget(block, remaining);
+      if (!nextBlock) {
+        return "none";
+      }
+
+      blocks.push(nextBlock);
+      length += separatorLength + nextBlock.length;
+      return nextBlock.length === block.length ? "full" : "partial";
+    },
+    toString(): string {
+      return blocks.join("\n");
+    },
+  };
+}
+
+function normalizeComparableText(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isContentCoveredBySummary(summary: string, content: string): boolean {
+  const normalizedSummary = normalizeComparableText(summary);
+  const normalizedExcerpt = normalizeComparableText(content.slice(0, 280));
+
+  if (!normalizedSummary || !normalizedExcerpt) {
+    return false;
+  }
+
+  if (normalizedSummary.includes(normalizedExcerpt)) {
+    return true;
+  }
+
+  const contentWords = normalizedExcerpt.split(" ").filter((word) => word.length >= 5);
+  if (contentWords.length < 8) {
+    return false;
+  }
+
+  const summaryWords = new Set(normalizedSummary.split(" "));
+  const overlapCount = contentWords.filter((word) => summaryWords.has(word)).length;
+  return overlapCount / contentWords.length >= 0.7;
+}
+
 function throwIfAborted(signal?: AbortSignal): void {
   if (signal?.aborted) {
     throw new DOMException("Aborted", "AbortError");
@@ -63,7 +167,9 @@ interface TavilyErrorResponse {
   request_id?: string;
 }
 
-async function parseTavilyError(response: Response): Promise<{ message: string; requestId?: string }> {
+async function parseTavilyError(
+  response: Response,
+): Promise<{ message: string; requestId?: string }> {
   let message = `HTTP ${response.status}: ${response.statusText}`;
   let requestId: string | undefined;
   try {
@@ -157,9 +263,7 @@ function buildResultContainer(header: string, markdown: string, _theme: Theme): 
 
 const WebSearchParams = Type.Object({
   objective: Type.String({
-    description:
-      "A natural-language description of the broader task or research goal, " +
-      "including any source or freshness guidance. Keep under 400 characters.",
+    description: "Research goal or question for the web search. Keep under 400 characters.",
   }),
   search_queries: Type.Optional(
     Type.Array(Type.String(), {
@@ -173,35 +277,22 @@ const WebSearchParams = Type.Object({
       description: "Maximum number of results to return (1-20)",
       minimum: 1,
       maximum: 20,
-      default: 8,
-    }),
-  ),
-  topic: Type.Optional(
-    Type.Union([Type.Literal("general"), Type.Literal("news"), Type.Literal("finance")], {
-      description: "Type of search — general for web, news for recent articles, finance for financial data",
-      default: "general",
+      default: 5,
     }),
   ),
   search_depth: Type.Optional(
-    Type.Union(
-      [
-        Type.Literal("ultra-fast"),
-        Type.Literal("fast"),
-        Type.Literal("basic"),
-        Type.Literal("advanced"),
-      ],
-      {
-        description:
-          "Search depth — ultra-fast: lowest latency, fast: good relevance, " +
-          "basic: balanced (default), advanced: highest relevance",
-        default: "basic",
-      },
-    ),
+    Type.Union([Type.Literal("basic"), Type.Literal("advanced")], {
+      description: "Search depth — basic for balanced results, advanced for higher relevance",
+      default: "basic",
+    }),
   ),
   time_range: Type.Optional(
-    Type.Union([Type.Literal("day"), Type.Literal("week"), Type.Literal("month"), Type.Literal("year")], {
-      description: "Filter results by time range",
-    }),
+    Type.Union(
+      [Type.Literal("day"), Type.Literal("week"), Type.Literal("month"), Type.Literal("year")],
+      {
+        description: "Filter results by time range",
+      },
+    ),
   ),
   include_domains: Type.Optional(
     Type.Array(Type.String(), {
@@ -215,15 +306,8 @@ const WebSearchParams = Type.Object({
   ),
   include_answer: Type.Optional(
     Type.Union([Type.Literal(true), Type.Literal(false)], {
-      description: "Include AI-generated answer (costs extra credits). Most users bring their own LLM.",
-      default: true,
-    }),
-  ),
-  // Backward-compatible alias
-  query: Type.Optional(
-    Type.String({
-      description:
-        "Deprecated — use objective instead. Treated as objective if objective is empty.",
+      description: "Include Tavily's AI-generated answer",
+      default: false,
     }),
   ),
 });
@@ -283,24 +367,54 @@ function searchResultsToSections(state: SearchState): ResultSection[] {
 }
 
 function formatWebSearchForLLM(state: SearchState): string {
-  const lines: string[] = [];
+  const builder = createBudgetedTextBuilder(SEARCH_TOTAL_CHAR_BUDGET);
 
   if (state.answer) {
-    lines.push("### Summary");
-    lines.push(state.answer);
+    builder.append(`### Summary\n${state.answer}`);
   }
 
-  if (state.results.length > 0) {
-    lines.push(`\n### Results (${state.results.length} found)`);
-    for (const item of state.results) {
-      lines.push(`\n**[${item.title}](${item.url})**`);
-      lines.push(item.content);
+  if (state.results.length === 0) {
+    builder.append("No results found");
+    return builder.toString();
+  }
+
+  builder.append(`### Results (${state.results.length} found)`);
+
+  const sortedResults = [...state.results].sort((left, right) => right.score - left.score);
+  let includedResults = 0;
+
+  for (const item of sortedResults) {
+    const title = item.title || "(untitled)";
+    const contentCoveredBySummary = state.answer
+      ? isContentCoveredBySummary(state.answer, item.content)
+      : false;
+    const resultLines = [`**[${title}](${item.url})**`];
+
+    if (contentCoveredBySummary) {
+      resultLines.push("_Covered by summary; source retained._");
+    } else {
+      resultLines.push(truncateToCharBudget(item.content, SEARCH_RESULT_CHAR_BUDGET));
     }
-  } else {
-    lines.push("\nNo results found");
+
+    const resultBlock = resultLines.join("\n");
+    if (!builder.canFit(resultBlock)) {
+      break;
+    }
+
+    const appendResult = builder.append(resultBlock);
+    includedResults += 1;
+    if (appendResult === "partial") {
+      break;
+    }
   }
 
-  return lines.join("\n");
+  if (includedResults < sortedResults.length) {
+    builder.append(
+      `... ${sortedResults.length - includedResults} more result${sortedResults.length - includedResults === 1 ? "" : "s"} omitted to stay within context budget.`,
+    );
+  }
+
+  return builder.toString();
 }
 
 // ---------------------------------------------------------------------------
@@ -314,7 +428,7 @@ async function performSearch(
   signal: AbortSignal | undefined,
   deps: SearchDeps,
 ): Promise<SearchState> {
-  const objective = params.objective?.trim() || params.query?.trim() || "";
+  const objective = params.objective?.trim() || "";
 
   if (objective.length === 0) {
     return { status: "error", query: "", results: [], error: "objective cannot be empty" };
@@ -338,10 +452,9 @@ async function performSearch(
   const body: Record<string, unknown> = {
     query,
     search_depth: params.search_depth ?? "basic",
-    max_results: params.max_results ?? 8,
-    include_answer: params.include_answer ?? true,
+    max_results: params.max_results ?? 5,
+    include_answer: params.include_answer ?? false,
     include_raw_content: false,
-    topic: params.topic ?? "general",
   };
 
   if (params.search_queries?.length) {
@@ -362,7 +475,7 @@ async function performSearch(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`,
+        Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify(body),
       signal,
@@ -401,13 +514,12 @@ function renderWebSearchCall(
   theme: Theme,
   _context: ToolRenderContext<unknown, WebSearchParamsType>,
 ): Component {
-  const objective = args.objective?.trim() || args.query?.trim() || "";
-  const topic = args.topic ?? "general";
+  const objective = args.objective?.trim() || "";
   const preview = objective.length > 70 ? `${objective.slice(0, 70)}…` : objective;
 
   let text = theme.fg("toolTitle", theme.bold("web_search"));
   if (preview) {
-    text += `\n${theme.fg("muted", topic)} · ${theme.fg("dim", preview)}`;
+    text += `\n${theme.fg("dim", preview)}`;
   }
   if (args.search_queries?.length) {
     text += theme.fg("muted", ` [${args.search_queries.join(", ")}]`);
@@ -435,7 +547,10 @@ function renderWebSearchResult(
 
   const header =
     `${icon} ${theme.fg("toolTitle", theme.bold("web_search"))}` +
-    theme.fg("dim", ` · ${totalResults} result${totalResults === 1 ? "" : "s"}${responseTimeInfo}${requestIdInfo}`);
+    theme.fg(
+      "dim",
+      ` · ${totalResults} result${totalResults === 1 ? "" : "s"}${responseTimeInfo}${requestIdInfo}`,
+    );
 
   if (status === "running") {
     return new Text(`${header}\n\n${theme.fg("dim", "Searching Tavily…")}`, 0, 0);
@@ -487,24 +602,11 @@ const WebExtractParams = Type.Object({
       description: "Focus extraction on content relevant to this query",
     }),
   ),
-  chunks_per_source: Type.Optional(
-    Type.Number({
-      description: "Number of relevant chunks per URL (1-5). Requires 'query' to be set.",
-      minimum: 1,
-      maximum: 5,
-    }),
-  ),
   timeout: Type.Optional(
     Type.Number({
       description: "Maximum wait time in seconds (1.0-60.0) for slow pages",
       minimum: 1,
       maximum: 60,
-    }),
-  ),
-  include_images: Type.Optional(
-    Type.Union([Type.Literal(true), Type.Literal(false)], {
-      description: "Include image URLs in the extracted content",
-      default: false,
     }),
   ),
 });
@@ -557,38 +659,52 @@ function extractResultsToSections(state: ExtractState): ResultSection[] {
 }
 
 function formatWebExtractForLLM(state: ExtractState): string {
-  const lines: string[] = [];
+  const builder = createBudgetedTextBuilder(EXTRACT_TOTAL_CHAR_BUDGET);
 
   if (state.query) {
-    lines.push(`### Extracted content (query: "${state.query}")`);
+    builder.append(`### Extracted content (query: "${state.query}")`);
   } else {
-    lines.push("### Extracted content");
+    builder.append("### Extracted content");
   }
 
   if (state.results.length === 0) {
-    lines.push("\nNo content extracted.");
+    builder.append("No content extracted.");
     if (state.failed.length > 0) {
-      lines.push(`\n${state.failed.length} URL(s) failed to extract.`);
+      builder.append(`${state.failed.length} URL(s) failed to extract.`);
     }
-    return lines.join("\n");
+    return builder.toString();
   }
 
-  lines.push(`\n${state.results.length} URL(s) processed successfully.`);
+  builder.append(`${state.results.length} URL(s) processed successfully.`);
+
+  let includedResults = 0;
 
   for (const item of state.results) {
-    lines.push(`\n**${item.title}**`);
-    lines.push(`${item.url}\n`);
-    lines.push(item.content);
+    const resultBlock = `**${item.title}**\n${item.url}\n\n${truncateToCharBudget(item.content, EXTRACT_RESULT_CHAR_BUDGET)}`;
+    if (!builder.canFit(resultBlock)) {
+      break;
+    }
+
+    const appendResult = builder.append(resultBlock);
+    includedResults += 1;
+    if (appendResult === "partial") {
+      break;
+    }
+  }
+
+  if (includedResults < state.results.length) {
+    builder.append(
+      `... ${state.results.length - includedResults} more URL${state.results.length - includedResults === 1 ? "" : "s"} omitted to stay within context budget.`,
+    );
   }
 
   if (state.failed.length > 0) {
-    lines.push(`\n---\n**Failed URLs (${state.failed.length}):**`);
-    for (const f of state.failed) {
-      lines.push(`- ${f.url}${f.error ? `: ${f.error}` : ""}`);
-    }
+    builder.append(
+      `---\n**Failed URLs (${state.failed.length}):**\n${state.failed.map((f) => `- ${f.url}${f.error ? `: ${f.error}` : ""}`).join("\n")}`,
+    );
   }
 
-  return lines.join("\n");
+  return builder.toString();
 }
 
 // ---------------------------------------------------------------------------
@@ -613,17 +729,6 @@ async function performExtract(
     return { status: "error", urls, results: [], failed: [], error: "Maximum 20 URLs allowed" };
   }
 
-  // Validate chunks_per_source requires query
-  if (params.chunks_per_source && !params.query?.trim()) {
-    return {
-      status: "error",
-      urls,
-      results: [],
-      failed: [],
-      error: "'chunks_per_source' requires 'query' to be set",
-    };
-  }
-
   const apiKey = deps.getApiKey();
   if (!apiKey) {
     return {
@@ -646,14 +751,8 @@ async function performExtract(
   if (params.query?.trim()) {
     body.query = params.query.trim();
   }
-  if (params.chunks_per_source) {
-    body.chunks_per_source = params.chunks_per_source;
-  }
   if (params.timeout) {
     body.timeout = params.timeout;
-  }
-  if (params.include_images) {
-    body.include_images = params.include_images;
   }
 
   try {
@@ -661,7 +760,7 @@ async function performExtract(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`,
+        Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify(body),
       signal,
@@ -699,21 +798,15 @@ async function performExtract(
         if (params.query?.trim()) {
           retryBody.query = params.query.trim();
         }
-        if (params.chunks_per_source) {
-          retryBody.chunks_per_source = params.chunks_per_source;
-        }
         if (params.timeout) {
           retryBody.timeout = params.timeout;
-        }
-        if (params.include_images) {
-          retryBody.include_images = params.include_images;
         }
 
         const retryResponse = await deps.fetchFn(TAVILY_EXTRACT_API_URL, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "Authorization": `Bearer ${apiKey}`,
+            Authorization: `Bearer ${apiKey}`,
           },
           body: JSON.stringify(retryBody),
           signal,
@@ -729,7 +822,10 @@ async function performExtract(
 
           // Merge successful retry results (deduplicate by URL)
           const successfulRetryUrls = new Set(retryResults.map((r) => r.url));
-          finalResults = [...results.filter((r) => !successfulRetryUrls.has(r.url)), ...retryResults];
+          finalResults = [
+            ...results.filter((r) => !successfulRetryUrls.has(r.url)),
+            ...retryResults,
+          ];
           finalFailed = retryData.failed || [];
         }
       } catch {
@@ -813,7 +909,10 @@ function renderWebExtractResult(
 
   const header =
     `${icon} ${theme.fg("toolTitle", theme.bold("web_extract"))}` +
-    theme.fg("dim", ` · ${successCount} succeeded${failedCount > 0 ? `, ${failedCount} failed` : ""}${responseTimeInfo}${requestIdInfo}`);
+    theme.fg(
+      "dim",
+      ` · ${successCount} succeeded${failedCount > 0 ? `, ${failedCount} failed` : ""}${responseTimeInfo}${requestIdInfo}`,
+    );
 
   if (status === "running") {
     return new Text(`${header}\n\n${theme.fg("dim", "Extracting content with Tavily…")}`, 0, 0);
@@ -870,19 +969,12 @@ const WebCrawlParams = Type.Object({
     Type.Number({
       description: "Maximum number of pages to crawl",
       minimum: 1,
-      default: 20,
+      default: 10,
     }),
   ),
   instructions: Type.Optional(
     Type.String({
       description: "Natural language guidance for semantic focus (2 credits per 10 pages)",
-    }),
-  ),
-  chunks_per_source: Type.Optional(
-    Type.Number({
-      description: "Number of relevant chunks per page (1-5). Requires 'instructions' to be set.",
-      minimum: 1,
-      maximum: 5,
     }),
   ),
   select_paths: Type.Optional(
@@ -923,12 +1015,6 @@ const WebCrawlParams = Type.Object({
       minimum: 10,
       maximum: 150,
       default: 150,
-    }),
-  ),
-  include_images: Type.Optional(
-    Type.Union([Type.Literal(true), Type.Literal(false)], {
-      description: "Include images extracted from pages",
-      default: false,
     }),
   ),
 });
@@ -979,31 +1065,45 @@ function crawlResultsToSections(state: CrawlState): ResultSection[] {
 }
 
 function formatWebCrawlForLLM(state: CrawlState): string {
-  const lines: string[] = [];
+  const builder = createBudgetedTextBuilder(CRAWL_TOTAL_CHAR_BUDGET);
 
   if (state.instructions) {
-    lines.push(`### Crawled content (instructions: "${state.instructions}")`);
+    builder.append(`### Crawled content (instructions: "${state.instructions}")`);
   } else {
-    lines.push("### Crawled content");
+    builder.append("### Crawled content");
   }
 
-  lines.push(`\nRoot URL: ${state.url}`);
+  builder.append(`Root URL: ${state.url}`);
 
   if (state.results.length === 0) {
-    lines.push("\nNo pages crawled.");
-    return lines.join("\n");
+    builder.append("No pages crawled.");
+    return builder.toString();
   }
 
-  lines.push(`${state.results.length} page(s) extracted.\n`);
+  builder.append(`${state.results.length} page(s) extracted.`);
+
+  let includedResults = 0;
 
   for (const item of state.results) {
-    lines.push(`**${item.title}**`);
-    lines.push(`${item.url}\n`);
-    lines.push(item.content);
-    lines.push("");
+    const resultBlock = `**${item.title}**\n${item.url}\n\n${truncateToCharBudget(item.content, CRAWL_RESULT_CHAR_BUDGET)}`;
+    if (!builder.canFit(resultBlock)) {
+      break;
+    }
+
+    const appendResult = builder.append(resultBlock);
+    includedResults += 1;
+    if (appendResult === "partial") {
+      break;
+    }
   }
 
-  return lines.join("\n");
+  if (includedResults < state.results.length) {
+    builder.append(
+      `... ${state.results.length - includedResults} more page${state.results.length - includedResults === 1 ? "" : "s"} omitted to stay within context budget.`,
+    );
+  }
+
+  return builder.toString();
 }
 
 // ---------------------------------------------------------------------------
@@ -1023,16 +1123,6 @@ async function performCrawl(
     return { status: "error", url: "", results: [], error: "URL cannot be empty" };
   }
 
-  // Validate chunks_per_source requires instructions
-  if (params.chunks_per_source && !params.instructions?.trim()) {
-    return {
-      status: "error",
-      url,
-      results: [],
-      error: "'chunks_per_source' requires 'instructions' to be set",
-    };
-  }
-
   const apiKey = deps.getApiKey();
   if (!apiKey) {
     return {
@@ -1048,7 +1138,7 @@ async function performCrawl(
   const body: Record<string, unknown> = {
     url,
     max_depth: params.max_depth ?? 1,
-    limit: params.limit ?? 20,
+    limit: params.limit ?? 10,
     extract_depth: params.extract_depth ?? "basic",
     format: "markdown",
     timeout: params.timeout ?? 150,
@@ -1060,9 +1150,6 @@ async function performCrawl(
   }
   if (params.instructions?.trim()) {
     body.instructions = params.instructions.trim();
-  }
-  if (params.chunks_per_source) {
-    body.chunks_per_source = params.chunks_per_source;
   }
   if (params.select_paths?.length) {
     body.select_paths = params.select_paths;
@@ -1076,16 +1163,13 @@ async function performCrawl(
   if (params.exclude_domains?.length) {
     body.exclude_domains = params.exclude_domains;
   }
-  if (params.include_images) {
-    body.include_images = params.include_images;
-  }
 
   try {
     const response = await deps.fetchFn(TAVILY_CRAWL_API_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`,
+        Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify(body),
       signal,
@@ -1133,7 +1217,7 @@ function renderWebCrawlCall(
 ): Component {
   const url = args.url?.trim() ?? "";
   const depth = args.max_depth ?? 1;
-  const limit = args.limit ?? 20;
+  const limit = args.limit ?? 10;
   const instructions = args.instructions?.trim() ?? "";
 
   const urlPreview = url.length > 50 ? `${url.slice(0, 50)}…` : url;
@@ -1144,8 +1228,7 @@ function renderWebCrawlCall(
     text += `\n${theme.fg("dim", urlPreview)}`;
   }
   if (instructions) {
-    const instrPreview =
-      instructions.length > 50 ? `${instructions.slice(0, 50)}…` : instructions;
+    const instrPreview = instructions.length > 50 ? `${instructions.slice(0, 50)}…` : instructions;
     text += `\n${theme.fg("dim", `instructions: ${instrPreview}`)}`;
   }
   return new Text(text, 0, 0);
@@ -1171,7 +1254,10 @@ function renderWebCrawlResult(
 
   const header =
     `${icon} ${theme.fg("toolTitle", theme.bold("web_crawl"))}` +
-    theme.fg("dim", ` · ${pageCount} page${pageCount === 1 ? "" : "s"}${responseTimeInfo}${requestIdInfo}`);
+    theme.fg(
+      "dim",
+      ` · ${pageCount} page${pageCount === 1 ? "" : "s"}${responseTimeInfo}${requestIdInfo}`,
+    );
 
   if (status === "running") {
     return new Text(`${header}\n\n${theme.fg("dim", "Crawling site with Tavily…")}`, 0, 0);
@@ -1217,6 +1303,7 @@ export {
   crawlResultsToSections,
   // Shared
   formatSectionsCollapsed,
+  truncateToCharBudget,
   throwIfAborted,
   parseTavilyError,
   // Backward-compatible aliases
@@ -1252,19 +1339,8 @@ export default function tavilyWebToolsExtension(pi: ExtensionAPI) {
     name: "web_search",
     label: "Web Search",
     description:
-      "Search the web for current information using Tavily's search API.\n" +
-      "Use when you need up-to-date information that may not be in your training data.\n\n" +
-      "- Provide an `objective` describing what you want to learn (keep under 400 chars).\n" +
-      "- Optionally add `search_queries` with specific keyword terms to prioritize.\n" +
-      "- Use `search_depth`: 'basic' (default), 'fast', 'advanced', or 'ultra-fast'.\n" +
-      "- Use `time_range` to filter by day/week/month/year.\n" +
-      "- Use `include_domains`/`exclude_domains` to filter sources.\n" +
-      "- Set `topic` to 'news' for recent articles, 'finance' for financial data.\n" +
-      "- Set `include_answer: false` to save credits (you likely have your own LLM).\n\n" +
-      "Examples:\n" +
-      '  {"objective":"Find the latest Node.js LTS version"}\n' +
-      '  {"objective":"Compare Bun vs Deno","search_depth":"advanced"}\n' +
-      '  {"objective":"AI news","topic":"news","time_range":"week"}',
+      "Search the web with Tavily for current information.\n" +
+      "Provide an `objective`; optionally narrow with `search_queries`, `time_range`, domain filters, or `search_depth: 'advanced'`.",
     parameters: WebSearchParams,
 
     async execute(
@@ -1274,7 +1350,7 @@ export default function tavilyWebToolsExtension(pi: ExtensionAPI) {
       onUpdate: AgentToolUpdateCallback<SearchState> | undefined,
       _ctx: ExtensionContext,
     ): Promise<AgentToolResult<SearchState>> {
-      const objective = params.objective?.trim() || params.query?.trim() || "";
+      const objective = params.objective?.trim() || "";
 
       if (objective.length === 0) {
         return {
@@ -1320,16 +1396,8 @@ export default function tavilyWebToolsExtension(pi: ExtensionAPI) {
     name: "web_extract",
     label: "Web Extract",
     description:
-      "Extract clean markdown content from specific URLs using Tavily's extract API.\n" +
-      "Use when you have URLs and need their content, handles JavaScript-rendered pages.\n\n" +
-      "- Provide `urls` (1-20) to extract content from.\n" +
-      "- Use `extract_depth: 'advanced'` for JavaScript-heavy pages (auto-retries failed URLs).\n" +
-      "- Use `query` + `chunks_per_source` for relevance-focused extraction.\n" +
-      "- Use `timeout` (1-60s) for slow pages.\n\n" +
-      "Examples:\n" +
-      '  {"urls":["https://docs.example.com/api"]}\n' +
-      '  {"urls":["https://app.example.com/dashboard"],"extract_depth":"advanced"}\n' +
-      '  {"urls":["https://docs.example.com"],"query":"authentication","chunks_per_source":3,"timeout":30}',
+      "Extract clean markdown from specific URLs with Tavily.\n" +
+      "Use `extract_depth: 'advanced'` for JavaScript-heavy pages, `query` to focus the extract, and `timeout` for slow sites.",
     parameters: WebExtractParams,
 
     async execute(
@@ -1343,7 +1411,9 @@ export default function tavilyWebToolsExtension(pi: ExtensionAPI) {
 
       if (urls.length === 0) {
         return {
-          content: [{ type: "text", text: "Invalid parameters: at least one valid URL is required" }],
+          content: [
+            { type: "text", text: "Invalid parameters: at least one valid URL is required" },
+          ],
           details: { status: "error" as const, urls: [], results: [], failed: [] },
         };
       }
@@ -1385,18 +1455,8 @@ export default function tavilyWebToolsExtension(pi: ExtensionAPI) {
     name: "web_crawl",
     label: "Web Crawl",
     description:
-      "Crawl a website and extract content from multiple pages using Tavily's crawl API.\n" +
-      "Use when you need content from many pages on a site (e.g., documentation, articles).\n\n" +
-      "- Provide a `url` as the starting point.\n" +
-      "- Use `max_depth` (1-5, start with 1-2) and `limit` to control scope.\n" +
-      "- Use `instructions` for semantic focus on relevant content (2 credits/10 pages).\n" +
-      "- Use `select_paths`/`exclude_paths` or `select_domains`/`exclude_domains` to filter.\n" +
-      "- Use `allow_external: false` to stay on the same domain.\n" +
-      "- Use `timeout` (10-150s) for large crawls.\n\n" +
-      "Examples:\n" +
-      '  {"url":"https://docs.example.com","max_depth":2,"limit":30}\n' +
-      '  {"url":"https://docs.example.com","instructions":"API authentication","chunks_per_source":3}\n' +
-      '  {"url":"https://example.com","select_paths":["/docs/.*"],"allow_external":false}',
+      "Crawl a site with Tavily and extract content from multiple pages.\n" +
+      "Use `max_depth`, `limit`, and path or domain filters to control scope, plus `instructions` when you need semantic focus.",
     parameters: WebCrawlParams,
 
     async execute(
