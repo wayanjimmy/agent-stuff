@@ -14,12 +14,12 @@ import type {
   AgentToolResult,
   AgentToolUpdateCallback,
   ToolRenderResultOptions,
-} from "@mariozechner/pi-coding-agent";
-import type { Theme } from "@mariozechner/pi-coding-agent";
-import type { TextContent, ImageContent } from "@mariozechner/pi-ai";
+} from "@earendil-works/pi-coding-agent";
+import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { TextContent, ImageContent } from "@earendil-works/pi-ai";
 import { Type, type Static } from "typebox";
-import { getMarkdownTheme } from "@mariozechner/pi-coding-agent";
-import { Container, Markdown, Spacer, Text, Component } from "@mariozechner/pi-tui";
+import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
+import { Container, Markdown, Spacer, Text, Component } from "@earendil-works/pi-tui";
 
 // Local type for ToolRenderContext (not exported publicly)
 interface ToolRenderContext<TState = unknown, TArgs = unknown> {

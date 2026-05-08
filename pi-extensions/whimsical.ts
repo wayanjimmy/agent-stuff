@@ -9,7 +9,7 @@
  *   pi -e pi-extensions/whimsical.ts
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const messages = [
   // Vibes (the best single-word verbs)

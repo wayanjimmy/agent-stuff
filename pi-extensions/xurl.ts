@@ -12,7 +12,7 @@
  *   pi -e pi-extensions/xurl.ts
  */
 
-import type { ExtensionAPI, ExtensionContext, AgentToolUpdateCallback } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, AgentToolUpdateCallback } from "@earendil-works/pi-coding-agent";
 import { Type, type Static } from "typebox";
 
 // ---------------------------------------------------------------------------
