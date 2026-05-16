@@ -12,7 +12,7 @@
  *   pi -e pi-extensions/xurl.ts
  */
 
-import type { ExtensionAPI, ExtensionContext, AgentToolUpdateCallback } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, AgentToolUpdateCallback } from "@earendil-works/pi-coding-agent";
 import { Type, type Static } from "typebox";
 
 // ---------------------------------------------------------------------------
@@ -132,7 +132,7 @@ export default function xurlExtension(pi: ExtensionAPI) {
   // -- Slash command: /xurl <uri> -------------------------------------------
   pi.registerCommand("xurl", {
     description: "Read a cross-agent thread by URI (e.g. /xurl codex/019cd...)",
-    async handler(args: string, ctx: any) {
+    async handler(args: string, ctx: ExtensionCommandContext) {
       const target = args.trim();
       if (!target) {
         pi.sendMessage(
