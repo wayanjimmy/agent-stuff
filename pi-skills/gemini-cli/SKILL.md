@@ -54,6 +54,7 @@ $ gemini -p "your prompt here" --approval-mode yolo 2>&1
 **Key flags:**
 - `-p, --prompt` - Run in non-interactive mode with the given prompt
 - `--approval-mode yolo` - Auto-approve all tool calls (YOLO mode)
+- `--include-directories <path>` - Grant access to directories outside the workspace (e.g., `/tmp`)
 - `--output-format json` - Single JSON object output (for parsing)
 - `--output-format stream-json` - Streaming JSON events (for real-time progress)
 - `--raw-output --accept-raw-output-risk` - Raw unsanitized output
@@ -62,6 +63,28 @@ $ gemini -p "your prompt here" --approval-mode yolo 2>&1
 - `yolo` - Auto-approve all tool calls. **Warning:** Use with caution as this allows the model to execute arbitrary shell commands and file edits without manual confirmation. Only use in trusted environments.
 - `auto_edit` - Auto-approve only file edit tools
 - `plan` - Read-only mode (no changes)
+
+### Workspace Constraints
+
+Gemini CLI is restricted to the current working directory (CWD) by default. Files outside the CWD cannot be referenced with `@` syntax.
+
+**Rules:**
+- **In-workspace files:** Use `@path/to/file` with paths relative to CWD.
+- **Out-of-workspace files:** Use `--include-directories <path>` to grant access:
+  ```bash
+  gemini --include-directories /tmp -p "Review @/tmp/changes.diff"
+  ```
+- **Prefer piping over temp files:** For ephemeral data (git diffs, logs), pipe via stdin to avoid workspace issues entirely:
+  ```bash
+  git diff | gemini -p "/reviewer Review this diff" --approval-mode yolo
+  ```
+- **If temp files are needed:** Create a `.gemini-tmp/` directory inside the project root (not `/tmp/`). Always clean up:
+  ```bash
+  mkdir -p .gemini-tmp && git diff > .gemini-tmp/diff.txt && \
+  gemini -p "@.gemini-tmp/diff.txt" --approval-mode yolo; \
+  rm -rf .gemini-tmp
+  ```
+- **Add `.gemini-tmp/` to `.gitignore`** to prevent accidental commits.
 
 ## Custom Slash Commands
 
@@ -73,10 +96,18 @@ Defined in `~/.gemini/commands/reviewer.toml`.
 
 Thorough code reviewer focusing on correctness, security, edge cases, and actionable feedback with minimal diffs.
 
-**Example:**
+**Example (piping — recommended):**
 ```bash
-$ gemini -p "/reviewer Please review this git diff from file /tmp/changes.diff for correctness, potential bugs, security issues, and provide actionable feedback" --approval-mode yolo 2>&1
-(timeout 120s)
+$ git diff | gemini -p "/reviewer Review these changes for bugs and security" --approval-mode yolo 2>&1
+(timeout 300s)
+```
+
+**Example (temp file — for multi-file context):**
+```bash
+$ mkdir -p .gemini-tmp && git diff > .gemini-tmp/changes.diff && \
+  gemini -p "/reviewer @.gemini-tmp/changes.diff" --approval-mode yolo 2>&1; \
+  rm -rf .gemini-tmp
+(timeout 300s)
 ```
 
 **When to use:** Whenever the user asks Gemini to review code, check a PR, audit for bugs/security, or provide code feedback.
@@ -130,9 +161,18 @@ When the user asks to "use Gemini":
    - **Code review tasks** (review PR, audit code, check for bugs/security) → prepend `/reviewer` to the prompt
    - **Research tasks** (look up docs, compare tech, find best practices, web search) → prepend `/researcher` to the prompt
 
-### Example: Code Review
+### Pre-flight Checklist
+
+Before passing files to Gemini, verify:
+- [ ] **Prefer piping:** Can this data be piped via stdin instead of saving to a file? (e.g., `git diff | gemini ...`)
+- [ ] **Workspace check:** If using `@`, is the file inside the CWD?
+- [ ] **External access:** If files must be outside CWD, am I using `--include-directories`?
+- [ ] **Temp file naming:** If temp files are needed, am I using `.gemini-tmp/` (not `/tmp/`)?
+- [ ] **Cleanup:** Will the temp directory be removed after the command?
+
+### Example: Code Review (piping)
 ```bash
-$ gemini -p "/reviewer review the latest commit for security issues" --approval-mode yolo 2>&1
+$ git diff | gemini -p "/reviewer review the latest commit for security issues" --approval-mode yolo 2>&1
 (timeout 300s)
 ```
 
