@@ -1,10 +1,22 @@
 {
   "version": 1,
   "skills": {
+    "grill-me": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/productivity/grill-me/SKILL.md",
+      "computedHash": "784f0dbb7403b0f00324bce9a112f715342777a0daee7bbb7385f9c6f0a170ea"
+    },
     "tavily-best-practices": {
       "source": "tavily-ai/skills",
       "sourceType": "github",
       "computedHash": "f674b49e68bb5dc55250e4905fae451a7a9a5571cfea8af762da689ccf16bb0a"
+    },
+    "xurl": {
+      "source": "Xuanwo/xurl",
+      "sourceType": "github",
+      "skillPath": "skills/xurl/SKILL.md",
+      "computedHash": "4a8e45d2bce565af42093d26b8d14b9f3c1505b7049e126c204ee884701d4e05"
     }
   }
 }
