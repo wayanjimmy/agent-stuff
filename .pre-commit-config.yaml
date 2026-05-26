@@ -1,0 +1,12 @@
+---
+fail_fast: true
+repos:
+  - repo: local
+    hooks:
+      - id: waza-skill-check
+        name: Waza Skill Validation
+        entry: .prek/scripts/waza-check.sh
+        language: script
+        files: '^pi-skills/.+/SKILL\.md$'
+        pass_filenames: true
+        stages: [pre-commit]
