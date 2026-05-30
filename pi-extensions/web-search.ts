@@ -18,6 +18,7 @@ import type {
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { TextContent, ImageContent } from "@earendil-works/pi-ai";
 import { Type, type Static } from "typebox";
+import { EnvHttpProxyAgent, fetch as undiciFetch } from "undici";
 import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Spacer, Text, Component } from "@earendil-works/pi-tui";
 
@@ -46,9 +47,30 @@ interface SearchDeps {
   fetchFn: typeof fetch;
 }
 
+// Build a proxy-aware fetch if HTTP_PROXY / HTTPS_PROXY is set.
+// EnvHttpProxyAgent reads HTTP_PROXY, HTTPS_PROXY, and NO_PROXY automatically.
+function createProxyFetch(): typeof fetch {
+  const proxyUrl =
+    process.env.HTTPS_PROXY ||
+    process.env.https_proxy ||
+    process.env.HTTP_PROXY ||
+    process.env.http_proxy;
+
+  if (!proxyUrl) {
+    return fetch;
+  }
+
+  const dispatcher = new EnvHttpProxyAgent();
+  return ((input: RequestInfo | URL, init?: RequestInit) =>
+    undiciFetch(input as string, {
+      ...init,
+      dispatcher,
+    })) as unknown as typeof fetch;
+}
+
 const DEFAULT_DEPS: SearchDeps = {
   getApiKey: () => process.env.TAVILY_API_KEY,
-  fetchFn: fetch,
+  fetchFn: createProxyFetch(),
 };
 
 const DEFAULT_CONTEXT_BUDGET = 12000;
