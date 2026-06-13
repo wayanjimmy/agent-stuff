@@ -1,0 +1,24 @@
+{
+  "mcpServers": {
+    "pgr": {
+      "command": "pgr",
+      "env": {
+        "PGR_OUTPUT_PROFILE": "full_v4"
+      },
+      "lifecycle": "eager",
+      "directTools": true
+    },
+    "headroom": {
+      "command": "headroom",
+      "args": [
+        "mcp",
+        "serve"
+      ],
+      "env": {
+        "HEADROOM_PROXY_URL": "http://localhost:8317"
+      },
+      "lifecycle": "eager",
+      "directTools": true
+    }
+  }
+}

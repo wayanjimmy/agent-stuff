@@ -1,3 +1,8 @@
 {
-  "extensions": ["./pi-extensions/prev-session.ts"]
+  "extensions": [
+    "./pi-extensions/prev-session.ts"
+  ],
+  "packages": [
+    "git:github.com/nicobailon/pi-mcp-adapter"
+  ]
 }
