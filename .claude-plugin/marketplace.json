@@ -1,0 +1,13 @@
+{
+  "metadata": { "pluginRoot": "./" },
+  "plugins": [
+    {
+      "name": "jimbopi",
+      "source": "./",
+      "skills": [
+        "./pi-skills/agy-cli",
+        "./pi-skills/sourcegraph"
+      ]
+    }
+  ]
+}
