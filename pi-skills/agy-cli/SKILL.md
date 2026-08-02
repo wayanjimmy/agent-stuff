@@ -32,7 +32,7 @@ Timeout: **300s** standard, **120s** simple, **600s** complex.
 
 1. Prefer piping ephemeral data via stdin over temp files.
 2. Always use `--dangerously-skip-permissions` for non-interactive calls.
-3. For review tasks, instruct agy to spin up verifier and reviewer subagents with explicit model and thinking-level specs (e.g. verifier using Gemini 3.5 Flash Low, reviewer using Gemini 3.5 Flash Medium).
+3. For review tasks, instruct agy to spin up verifier and reviewer subagents with explicit model and thinking-level specs (e.g. verifier using Gemini 3.6 Flash Low, reviewer using Gemini 3.6 Flash Medium).
 4. For external files use `--add-dir <path>`. Temp files go in `.agy-tmp/`.
 5. Include timeout and `2>&1` in all calls.
 
@@ -40,7 +40,7 @@ Timeout: **300s** standard, **120s** simple, **600s** complex.
 
 ```bash
 # Code review with subagents
-agy --print "Review the latest changes for bugs. Spin up a Verifier subagent using Gemini 3.5 Flash (Low) to build the project and run tests. Pass any failures to the main agent to fix. Once passing, spin up a Reviewer subagent using Gemini 3.5 Flash (Medium) to review the code for quality and best practices. Fix any flagged issues and repeat until both subagents are satisfied." --dangerously-skip-permissions 2>&1
+agy --print "Review the latest changes for bugs. Spin up a Verifier subagent using Gemini 3.6 Flash (Low) to build the project and run tests. Pass any failures to the main agent to fix. Once passing, spin up a Reviewer subagent using Gemini 3.6 Flash (Medium) to review the code for quality and best practices. Fix any flagged issues and repeat until both subagents are satisfied." --dangerously-skip-permissions 2>&1
 
 
 # Read file
