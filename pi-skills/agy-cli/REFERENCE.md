@@ -12,7 +12,7 @@ agy --print "@src/main.go Explain the entry point" --dangerously-skip-permission
 (timeout 300s)
 
 # Code review with subagents
-git diff | agy --print "Review the latest changes for bugs. Spin up a Verifier subagent using Gemini 3.5 Flash (Low) to build the project and run tests. Pass any failures to the main agent to fix. Once passing, spin up a Reviewer subagent using Gemini 3.5 Flash (Medium) to review the code for quality and best practices. Fix any flagged issues and repeat until both subagents are satisfied." --dangerously-skip-permissions 2>&1
+git diff | agy --print "Review the latest changes for bugs. Spin up a Verifier subagent using Gemini 3.7 Flash (Low) to build the project and run tests. Pass any failures to the main agent to fix. Once passing, spin up a Reviewer subagent using Gemini 3.7 Flash (Medium) to review the code for quality and best practices. Fix any flagged issues and repeat until both subagents are satisfied." --dangerously-skip-permissions 2>&1
 (timeout 600s)
 
 # Generate code
