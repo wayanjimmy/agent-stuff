@@ -16,27 +16,21 @@ import type {
   ToolRenderResultOptions,
 } from "@earendil-works/pi-coding-agent";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import type { TextContent, ImageContent } from "@earendil-works/pi-ai";
+import { StringEnum, type TextContent } from "@earendil-works/pi-ai";
 import { Type, type Static } from "typebox";
-import { EnvHttpProxyAgent, fetch as undiciFetch } from "undici";
-import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
-import { Container, Markdown, Spacer, Text, Component } from "@earendil-works/pi-tui";
+import {
+  EnvHttpProxyAgent,
+  fetch as undiciFetch,
+  type RequestInit as UndiciRequestInit,
+} from "undici";
+import { getMarkdownTheme, keyHint, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { Container, Markdown, Spacer, Text, type Component } from "@earendil-works/pi-tui";
 
-// Local type for ToolRenderContext (not exported publicly)
-interface ToolRenderContext<TState = unknown, TArgs = unknown> {
-  args: TArgs;
-  toolCallId: string;
-  invalidate: () => void;
-  lastComponent: Component | undefined;
-  state: TState;
-  cwd: string;
-  executionStarted: boolean;
-  argsComplete: boolean;
-  isPartial: boolean;
-  expanded: boolean;
-  showImages: boolean;
-  isError: boolean;
-}
+// Derive the renderer context from the public tool definition.
+type ToolRenderContext<TState = unknown, TArgs = unknown> = Omit<
+  Parameters<NonNullable<ToolDefinition["renderCall"]>>[2],
+  "state" | "args"
+> & { state: TState; args: TArgs };
 
 // ---------------------------------------------------------------------------
 // Shared dependencies & helpers
@@ -63,7 +57,7 @@ function createProxyFetch(): typeof fetch {
   const dispatcher = new EnvHttpProxyAgent();
   return ((input: RequestInfo | URL, init?: RequestInit) =>
     undiciFetch(input as string, {
-      ...init,
+      ...(init as UndiciRequestInit),
       dispatcher,
     })) as unknown as typeof fetch;
 }
@@ -175,6 +169,21 @@ function isContentCoveredBySummary(summary: string, content: string): boolean {
   const summaryWords = new Set(normalizedSummary.split(" "));
   const overlapCount = contentWords.filter((word) => summaryWords.has(word)).length;
   return overlapCount / contentWords.length >= 0.7;
+}
+
+function assertSuccessfulResult(
+  result: { status: string; error?: string; requestId?: string },
+  signal?: AbortSignal,
+): void {
+  throwIfAborted(signal);
+  if (result.status === "error" || result.status === "aborted") {
+    const requestId = result.requestId ? ` (request ID: ${result.requestId})` : "";
+    throw new Error(`${result.error ?? "Tavily request failed"}${requestId}`);
+  }
+}
+
+function expandHint(theme: Theme): string {
+  return `\n${theme.fg("dim", `(${keyHint("app.tools.expand", "to expand")})`)}`;
 }
 
 function throwIfAborted(signal?: AbortSignal): void {
@@ -303,18 +312,15 @@ const WebSearchParams = Type.Object({
     }),
   ),
   search_depth: Type.Optional(
-    Type.Union([Type.Literal("basic"), Type.Literal("advanced")], {
+    StringEnum(["basic", "advanced"], {
       description: "Search depth — basic for balanced results, advanced for higher relevance",
       default: "basic",
     }),
   ),
   time_range: Type.Optional(
-    Type.Union(
-      [Type.Literal("day"), Type.Literal("week"), Type.Literal("month"), Type.Literal("year")],
-      {
-        description: "Filter results by time range",
-      },
-    ),
+    StringEnum(["day", "week", "month", "year"], {
+      description: "Filter results by time range",
+    }),
   ),
   include_domains: Type.Optional(
     Type.Array(Type.String(), {
@@ -327,7 +333,7 @@ const WebSearchParams = Type.Object({
     }),
   ),
   include_answer: Type.Optional(
-    Type.Union([Type.Literal(true), Type.Literal(false)], {
+    Type.Boolean({
       description: "Include Tavily's AI-generated answer",
       default: false,
     }),
@@ -591,7 +597,7 @@ function renderWebSearchResult(
     const collapsed = formatSectionsCollapsed(sections, 3, 280);
     let text = `${header}\n\n${collapsed}`;
     if (sections.length > 3) {
-      text += `\n${theme.fg("dim", "(Ctrl+O to expand)")}`;
+      text += expandHint(theme);
     }
     return new Text(text, 0, 0);
   }
@@ -614,7 +620,7 @@ const WebExtractParams = Type.Object({
     maxItems: 20,
   }),
   extract_depth: Type.Optional(
-    Type.Union([Type.Literal("basic"), Type.Literal("advanced")], {
+    StringEnum(["basic", "advanced"], {
       description: "Use 'advanced' for JavaScript-heavy or dynamic pages",
       default: "basic",
     }),
@@ -851,10 +857,12 @@ async function performExtract(
           finalFailed = retryData.failed || [];
         }
       } catch {
-        // Retry failed, keep original results
+        // Preserve successful basic results unless the user cancelled.
+        throwIfAborted(signal);
       }
     }
 
+    throwIfAborted(signal);
     return {
       status: "done",
       urls,
@@ -894,7 +902,7 @@ function renderWebExtractCall(
   theme: Theme,
   _context: ToolRenderContext<unknown, WebExtractParamsType>,
 ): Component {
-  const urls = args.urls;
+  const urls = args.urls ?? [];
   const depth = args.extract_depth ?? "basic";
   const query = args.query?.trim() ?? "";
 
@@ -953,7 +961,7 @@ function renderWebExtractResult(
     const collapsed = formatSectionsCollapsed(sections, 3, 280);
     let text = `${header}\n\n${collapsed}`;
     if (sections.length > 3) {
-      text += `\n${theme.fg("dim", "(Ctrl+O to expand)")}`;
+      text += expandHint(theme);
     }
     return new Text(text, 0, 0);
   }
@@ -1020,13 +1028,13 @@ const WebCrawlParams = Type.Object({
     }),
   ),
   allow_external: Type.Optional(
-    Type.Union([Type.Literal(true), Type.Literal(false)], {
+    Type.Boolean({
       description: "Allow crawling external domains (default: true for crawl)",
       default: true,
     }),
   ),
   extract_depth: Type.Optional(
-    Type.Union([Type.Literal("basic"), Type.Literal("advanced")], {
+    StringEnum(["basic", "advanced"], {
       description: "Use 'advanced' for JavaScript-heavy pages (2 credits per 5 URLs vs 1 credit)",
       default: "basic",
     }),
@@ -1298,7 +1306,7 @@ function renderWebCrawlResult(
     const collapsed = formatSectionsCollapsed(sections, 3, 280);
     let text = `${header}\n\n${collapsed}`;
     if (sections.length > 3) {
-      text += `\n${theme.fg("dim", "(Ctrl+O to expand)")}`;
+      text += expandHint(theme);
     }
     return new Text(text, 0, 0);
   }
@@ -1375,10 +1383,7 @@ export default function tavilyWebToolsExtension(pi: ExtensionAPI) {
       const objective = params.objective?.trim() || "";
 
       if (objective.length === 0) {
-        return {
-          content: [{ type: "text", text: "Invalid parameters: objective cannot be empty" }],
-          details: { status: "error" as const, query: "", results: [] },
-        };
+        throw new Error("Invalid parameters: objective cannot be empty");
       }
 
       onUpdate?.({
@@ -1387,6 +1392,7 @@ export default function tavilyWebToolsExtension(pi: ExtensionAPI) {
       });
 
       const result = await performSearch(params, signal, DEFAULT_DEPS);
+      assertSuccessfulResult(result, signal);
       const text = formatWebSearchForLLM(result);
 
       return {
@@ -1432,12 +1438,7 @@ export default function tavilyWebToolsExtension(pi: ExtensionAPI) {
       const urls = params.urls.map((u) => u.trim()).filter((u) => u.length > 0);
 
       if (urls.length === 0) {
-        return {
-          content: [
-            { type: "text", text: "Invalid parameters: at least one valid URL is required" },
-          ],
-          details: { status: "error" as const, urls: [], results: [], failed: [] },
-        };
+        throw new Error("Invalid parameters: at least one valid URL is required");
       }
 
       onUpdate?.({
@@ -1446,6 +1447,7 @@ export default function tavilyWebToolsExtension(pi: ExtensionAPI) {
       });
 
       const result = await performExtract(params, signal, DEFAULT_DEPS);
+      assertSuccessfulResult(result, signal);
       const text = formatWebExtractForLLM(result);
 
       return {
@@ -1491,10 +1493,7 @@ export default function tavilyWebToolsExtension(pi: ExtensionAPI) {
       const url = params.url?.trim();
 
       if (!url) {
-        return {
-          content: [{ type: "text", text: "Invalid parameters: URL is required" }],
-          details: { status: "error" as const, url: "", results: [] },
-        };
+        throw new Error("Invalid parameters: URL is required");
       }
 
       onUpdate?.({
@@ -1503,6 +1502,7 @@ export default function tavilyWebToolsExtension(pi: ExtensionAPI) {
       });
 
       const result = await performCrawl(params, signal, DEFAULT_DEPS);
+      assertSuccessfulResult(result, signal);
       const text = formatWebCrawlForLLM(result);
 
       return {

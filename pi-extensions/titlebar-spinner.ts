@@ -1,58 +1,40 @@
-/**
- * Titlebar Spinner Extension
- *
- * Shows a braille spinner animation in the terminal title while the agent is working.
- * Uses `ctx.ui.setTitle()` to update the terminal title via the extension API.
- *
- * Usage:
- *   pi -e pi-extensions/titlebar-spinner.ts
- */
-
+/** Animate the terminal title until Pi has fully settled. */
 import path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 const BRAILLE_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
-function getBaseTitle(pi: ExtensionAPI): string {
-	const cwd = path.basename(process.cwd());
-	const session = pi.getSessionName();
-	return session ? `π - ${session} - ${cwd}` : `π - ${cwd}`;
-}
-
 export default function (pi: ExtensionAPI) {
-	let timer: ReturnType<typeof setInterval> | null = null;
-	let frameIndex = 0;
+  let timer: ReturnType<typeof setInterval> | undefined;
+  let frameIndex = 0;
 
-	function stopAnimation(ctx: ExtensionContext) {
-		if (timer) {
-			clearInterval(timer);
-			timer = null;
-		}
-		frameIndex = 0;
-		ctx.ui.setTitle(getBaseTitle(pi));
-	}
+  function baseTitle(ctx: ExtensionContext): string {
+    const cwd = path.basename(ctx.cwd);
+    const session = pi.getSessionName();
+    return session ? `π - ${session} - ${cwd}` : `π - ${cwd}`;
+  }
 
-	function startAnimation(ctx: ExtensionContext) {
-		stopAnimation(ctx);
-		timer = setInterval(() => {
-			const frame = BRAILLE_FRAMES[frameIndex % BRAILLE_FRAMES.length];
-			const cwd = path.basename(process.cwd());
-			const session = pi.getSessionName();
-			const title = session ? `${frame} π - ${session} - ${cwd}` : `${frame} π - ${cwd}`;
-			ctx.ui.setTitle(title);
-			frameIndex++;
-		}, 80);
-	}
+  function stopAnimation(ctx: ExtensionContext) {
+    clearInterval(timer);
+    timer = undefined;
+    frameIndex = 0;
+    if (ctx.mode === "tui") ctx.ui.setTitle(baseTitle(ctx));
+  }
 
-	pi.on("agent_start", async (_event, ctx) => {
-		startAnimation(ctx);
-	});
+  pi.on("agent_start", (_event, ctx) => {
+    if (ctx.mode !== "tui" || timer) return;
+    const tick = () => {
+      const frame = BRAILLE_FRAMES[frameIndex++ % BRAILLE_FRAMES.length];
+      ctx.ui.setTitle(`${frame} ${baseTitle(ctx)}`);
+    };
+    tick();
+    timer = setInterval(tick, 80);
+  });
 
-	pi.on("agent_end", async (_event, ctx) => {
-		stopAnimation(ctx);
-	});
-
-	pi.on("session_shutdown", async (_event, ctx) => {
-		stopAnimation(ctx);
-	});
+  pi.on("agent_settled", (_event, ctx) => stopAnimation(ctx));
+  pi.on("session_shutdown", (_event, ctx) => stopAnimation(ctx));
+  pi.on("session_start", (_event, ctx) => stopAnimation(ctx));
+  pi.on("session_info_changed", (_event, ctx) => {
+    if (ctx.mode === "tui" && !timer) ctx.ui.setTitle(baseTitle(ctx));
+  });
 }

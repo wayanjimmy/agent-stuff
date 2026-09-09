@@ -15,6 +15,11 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand("prev", {
     description: "Insert prompt to read the previous session via xurl",
     handler: async (_args, ctx) => {
+      if (ctx.mode !== "tui") {
+        ctx.ui.notify("/prev requires interactive TUI mode", "error");
+        return;
+      }
+
       const prompt = await ctx.ui.custom<string>((tui, theme, _kb, done) => {
         const loader = new BorderedLoader(tui, theme, "Finding previous session...");
         loader.onAbort = () => done("");
@@ -40,13 +45,18 @@ export default function (pi: ExtensionAPI) {
           try {
             const { open } = await import("node:fs/promises");
             const fileHandle = await open(sessionFile, "r");
-            const { bytesRead, buffer } = await fileHandle.read({
-              buffer: Buffer.alloc(4096),
-              offset: 0,
-              length: 4096,
-              position: 0,
-            });
-            await fileHandle.close();
+            const { bytesRead, buffer } = await (async () => {
+              try {
+                return await fileHandle.read({
+                  buffer: Buffer.alloc(4096),
+                  offset: 0,
+                  length: 4096,
+                  position: 0,
+                });
+              } finally {
+                await fileHandle.close();
+              }
+            })();
 
             const firstLine = buffer.toString("utf8", 0, bytesRead).split("\n")[0];
             const header = JSON.parse(firstLine);
