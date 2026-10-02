@@ -1,11 +1,3 @@
 {
-  "mcpServers": {
-    "pgr": {
-      "command": "pgr",
-      "env": {
-        "PGR_OUTPUT_PROFILE": "full_v4"
-      },
-      "exposure": "codemode"
-    }
-  }
+  "mcpServers": {}
 }
