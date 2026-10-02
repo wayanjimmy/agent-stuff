@@ -1,6 +1,6 @@
 # jimbopi
 
-Pi extensions and skills. Tested against **Pi 0.85.1** (upstream API audit: `6160683a4a8012f0d1cd30c145df18b4ca6f5176`).
+Pi extensions and skills. Tested against **Pi 1.0.0**.
 
 ## Install
 
@@ -23,6 +23,10 @@ Requires Node.js 22.19+ and a current Pi installation. Pi supplies its core pack
 - `sourcegraph`: requires Deno and network access to sourcegraph.com.
 
 Use `pi config` to disable resources you do not need.
+
+### Project MCP
+
+`.pi/mcp.json` uses Pi's built-in MCP support; no `pi-mcp-adapter` package is needed. The local `pgr` server uses `exposure: "codemode"` to make its four tools callable from Pi's built-in codemode. Install `pgr` separately and run `pi mcp list` to verify the connection.
 
 ## Development
 
