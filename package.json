@@ -17,9 +17,6 @@
     "test": "vp test run",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": {
-    "undici": "^8.10.2"
-  },
   "devDependencies": {
     "@earendil-works/pi-ai": "1.0.0",
     "@earendil-works/pi-coding-agent": "1.0.0",

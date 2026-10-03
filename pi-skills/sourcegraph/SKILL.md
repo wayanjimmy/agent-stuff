@@ -51,7 +51,7 @@ Also accepts JSON on stdin for automation.
 ## DO NOT USE FOR
 
 - Private repository search (Sourcegraph.com indexes public repos only)
-- General web search (use Tavily instead)
+- General web search (use a dedicated web search tool instead)
 - Complex OR/regex patterns (prefer separate searches)
 - Cloning or downloading repositories (read-only search)
 
